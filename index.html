@@ -477,7 +477,7 @@ footer span{color:#6ee89c}
 <div class="toast" id="toast"></div>
 
 <footer>
-  <p>Made with <span>♥</span> for community science students worldwide · IdeaSphere © 2025</p>
+  <p>Made with <span>♥</span> for Thinkfinity worldwide · IdeaSphere © 2026</p>
 </footer>
 
 <script>
@@ -859,7 +859,7 @@ function toggleLang(){
 // ══ TOAST ══
 let toastTimer;
 function showToast(msg,type=''){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(type?' '+type:''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.className='toast';},3000); }
-function showAbout(){ showToast('IdeaSphere — A global platform for community science students & citizens to share world-changing ideas! 🌍 Built with ❤️ from India.','success'); }
+function showAbout(){ showToast('IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action..','success'); }
 function scrollToFeed(){ document.getElementById('feed-col').scrollIntoView({behavior:'smooth',block:'start'}); }
 function scrollToForm(){ document.getElementById('form-card').scrollIntoView({behavior:'smooth',block:'start'}); document.getElementById('f-title').focus(); }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
