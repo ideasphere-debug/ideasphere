@@ -28,7 +28,19 @@
   window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
   getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! 🎉`,'success'); }).catch(()=>{});
   onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
-  window.__loginGoogle = async () => { try { await signInWithRedirect(auth, provider); } catch(e) { try { await signInWithPopup(auth, provider); } catch(e2){} } };
+  window.__loginGoogle = async () => {
+    try {
+      // Try popup first
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const result = await signInWithPopup(auth, provider);
+      if(result?.user && window.showToast) window.showToast(`Welcome, ${result.user.displayName?.split(' ')[0]}! 🎉`,'success');
+    } catch(e) {
+      console.log('Popup failed, trying redirect:', e.code);
+      if(e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+        try { await signInWithRedirect(auth, provider); } catch(e2) { console.log(e2); }
+      }
+    }
+  };
   window.__logout = async () => { await signOut(auth); };
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
   onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
@@ -919,7 +931,7 @@ async function addComment(){
 function loadMore(){state.page++;renderFeed();}
 
 let toastTimer;
-function showAbout(){ showToast('🌍 IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action.','success'); }
+function showAbout(){ showToast('🌍 IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action. .','success'); }
 function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='toast';},3000);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
