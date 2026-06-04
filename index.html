@@ -29,19 +29,35 @@
   getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! 🎉`,'success'); }).catch(()=>{});
   onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
   window.__loginGoogle = async () => {
-    try {
-      // Try popup first
-      provider.setCustomParameters({ prompt: 'select_account' });
-      const result = await signInWithPopup(auth, provider);
-      if(result?.user && window.showToast) window.showToast(`Welcome, ${result.user.displayName?.split(' ')[0]}! 🎉`,'success');
-    } catch(e) {
-      console.log('Popup failed, trying redirect:', e.code);
-      if(e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
-        try { await signInWithRedirect(auth, provider); } catch(e2) { console.log(e2); }
-      }
-    }
+    // Simple local login - no Google OAuth needed
+    const name = prompt('Enter your name to join IdeaSphere:');
+    if(!name || !name.trim()) return;
+    const email = prompt('Enter your email (for notifications):') || '';
+    const fakeUser = {
+      displayName: name.trim(),
+      email: email.trim(),
+      photoURL: null,
+      uid: 'local_' + Date.now()
+    };
+    localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
+    window.__currentUser = fakeUser;
+    if(window.updateAuthUI) window.updateAuthUI(fakeUser);
+    if(window.showToast) window.showToast(`Welcome, ${name.trim()}! 🎉`, 'success');
   };
-  window.__logout = async () => { await signOut(auth); };
+  window.__logout = async () => {
+    localStorage.removeItem('is_local_user');
+    window.__currentUser = null;
+    if(window.updateAuthUI) window.updateAuthUI(null);
+  };
+  // Restore local user on page load
+  const savedUser = localStorage.getItem('is_local_user');
+  if(savedUser) {
+    try {
+      window.__currentUser = JSON.parse(savedUser);
+      setTimeout(() => { if(window.updateAuthUI) window.updateAuthUI(window.__currentUser); }, 500);
+    } catch(e) {}
+  }
+  window.__logout_firebase = async () => { try { await signOut(auth); } catch(e) {} };
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
   onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
   window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); return r.id; };
@@ -296,7 +312,7 @@ footer span{color:#4ade80}
     <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
     <div id="auth-nav">
       <button class="login-btn-nav" onclick="loginGoogle()">
-        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
+        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Login
       </button>
     </div>
     <button class="nav-btn" onclick="showTab('submit');scrollToTop()">+ Idea</button>
@@ -546,7 +562,7 @@ footer span{color:#4ade80}
 <div class="toast" id="toast"></div>
 
 <footer>
-  <p>Made with <span>♥</span> for Thinkfinity worldwide · IdeaSphere © 2025</p>
+  <p>Made with <span>♥</span> for Thinkfinity worldwide · IdeaSphere © 2026</p>
 </footer>
 
 <script>
