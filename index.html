@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,14 +8,10 @@
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-QHNHW4C04L"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-QHNHW4C04L');</script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<!-- EmailJS -->
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<!-- Firebase -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-
+  import { getAuth, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   const firebaseConfig = {
     apiKey: "AIzaSyABFq1tpVgWX-EmtBaY0_0UxjwRt5PYRWU",
     authDomain: "ideasphere-edc0d.firebaseapp.com",
@@ -24,366 +20,388 @@
     messagingSenderId: "450267293030",
     appId: "1:450267293030:web:65e6ca377d9477e2c954a7"
   };
-
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const auth = getAuth(app);
   const provider = new GoogleAuthProvider();
-
   window.__db = db;
-  window.__auth = auth;
-  window.__firebase = { collection, addDoc, doc, updateDoc, increment, orderBy, query, onSnapshot, arrayUnion };
-
-  // Auth state
-  onAuthStateChanged(auth, (user) => {
-    window.__currentUser = user;
-    if(window.updateAuthUI) window.updateAuthUI(user);
-  });
-
-  window.__loginGoogle = async function() {
-    try {
-      await signInWithPopup(auth, provider);
-    } catch(e) { console.log('Login error:', e); }
-  };
-
-  window.__logout = async function() {
-    await signOut(auth);
-  };
-
-  // Realtime ideas
+  window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
+  getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! 🎉`,'success'); }).catch(()=>{});
+  onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
+  window.__loginGoogle = async () => { try { await signInWithRedirect(auth, provider); } catch(e) { try { await signInWithPopup(auth, provider); } catch(e2){} } };
+  window.__logout = async () => { await signOut(auth); };
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
-  onSnapshot(q, (snapshot) => {
-    window.__ideas = [];
-    snapshot.forEach(d => window.__ideas.push({ id: d.id, ...d.data() }));
-    if(window.renderFeed) window.renderFeed();
-    if(window.renderSidebar) window.renderSidebar();
-    if(window.updateStats) window.updateStats();
-  });
-
-  window.__submitIdea = async function(idea) {
-    const { collection: col, addDoc: add } = window.__firebase;
-    return await add(collection(window.__db, "ideas"), {
-      ...idea,
-      ts: { seconds: Math.floor(Date.now()/1000) },
-      votes: 1, comments: [], reach: 1
-    });
-  };
-
-  window.__voteIdea = async function(id, val) {
-    const { doc: d, updateDoc: upd, increment: inc } = window.__firebase;
-    await upd(d(window.__db, "ideas", id), { votes: inc(val) });
-  };
-
-  window.__addComment = async function(id, comment) {
-    const { doc: d, updateDoc: upd, arrayUnion: au } = window.__firebase;
-    await upd(d(window.__db, "ideas", id), { comments: au(comment) });
-  };
-
+  onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
+  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); return r.id; };
+  window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
+  window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
+  window.__updateStatus = async (id,status) => { await updateDoc(doc(db,"ideas",id),{status}); };
   window.__dbReady = true;
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+<script>(function(){emailjs.init("NX-Nh_CaDvJLi357V");window.__sendNotif=async(to,title,name,type)=>{if(!to)return;try{await emailjs.send("service_tlgp8gj","template_maj59l",{to_email:to,idea_title:title,name:name||"Someone",type,message:type==="vote"?`${name} upvoted your idea "${title}"!`:`${name} commented on "${title}"!`,email:"noreply@ideasphere.com",time:new Date().toLocaleString()});}catch(e){}};})();</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --ink:#111209;--ink2:#3a3a2e;--muted:#7a7a65;--cream:#f8f5ef;--white:#fff;
-  --border:rgba(17,18,9,0.1);--border2:rgba(17,18,9,0.18);
-  --green:#1f6b43;--green-l:#2e9460;--green-bg:#e8f4ec;
-  --blue:#1a5080;--blue-bg:#e4eff8;--red:#b83030;--red-bg:#faeaea;
-  --amber:#9a6010;--amber-bg:#fdf3de;--purple:#5a2d8a;--purple-bg:#f0e8fa;
-  --teal:#0d6e6e;--teal-bg:#e0f2f2;
-  --shadow:0 2px 16px rgba(17,18,9,0.07);--shadow2:0 6px 32px rgba(17,18,9,0.12);
+  --ink:#0f1117;--ink2:#2d2d3a;--muted:#888;--cream:#f7f8fc;--white:#fff;
+  --border:rgba(15,17,23,0.08);--border2:rgba(15,17,23,0.15);
+  --green:#16a34a;--green-l:#22c55e;--green-bg:#dcfce7;
+  --blue:#2563eb;--blue-bg:#dbeafe;--red:#dc2626;--red-bg:#fee2e2;
+  --amber:#d97706;--amber-bg:#fef3c7;--purple:#7c3aed;--purple-bg:#ede9fe;
+  --teal:#0d9488;--teal-bg:#ccfbf1;--orange:#ea580c;--orange-bg:#ffedd5;
+  --shadow:0 1px 12px rgba(15,17,23,0.06);--shadow2:0 8px 32px rgba(15,17,23,0.12);
+  --r:12px;--r2:18px;
 }
 html{scroll-behavior:smooth}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:70px}
+
 /* NAV */
-.nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:58px;gap:0.5rem;}
-.logo{font-family:'Fraunces',serif;font-size:1.25rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;text-decoration:none;}
-.logo-dot{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#5ecf8a);display:flex;align-items:center;justify-content:center;font-size:0.75rem;flex-shrink:0;}
-.nav-right{display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;}
-.nav-link{color:rgba(255,255,255,0.65);font-size:0.82rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;}
-.nav-btn{background:var(--green-l);color:#fff;border:none;padding:6px 14px;border-radius:20px;font-size:0.82rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-.lang-btn{background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);padding:5px 10px;border-radius:20px;font-size:0.75rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-/* USER AVATAR IN NAV */
-.user-nav{display:flex;align-items:center;gap:8px;}
-.user-nav-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:2px solid var(--green-l);}
-.user-nav-name{color:rgba(255,255,255,0.85);font-size:0.78rem;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.logout-btn{color:rgba(255,255,255,0.5);font-size:0.72rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;}
-.logout-btn:hover{color:#fff}
-.login-btn{background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:5px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:5px;}
-.login-btn:hover{background:rgba(255,255,255,0.25)}
+.nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;}
+.logo{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:7px;text-decoration:none;}
+.logo-dot{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#4ade80);display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;}
+.nav-right{display:flex;align-items:center;gap:0.5rem;}
+.nav-btn{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.user-nav{display:flex;align-items:center;gap:6px;}
+.user-nav-img{width:26px;height:26px;border-radius:50%;border:2px solid var(--green-l);object-fit:cover;}
+.user-nav-name{color:#fff;font-size:0.75rem;font-weight:500;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.logout-btn{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.15);padding:4px 8px;border-radius:12px;font-size:0.7rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.login-btn-nav{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:4px;}
+
 /* HERO */
-.hero{background:var(--ink);color:#fff;padding:4rem 1.5rem 3rem;text-align:center;position:relative;overflow:hidden;}
-.hero-bg{position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 20% 60%,rgba(46,148,96,0.13) 0%,transparent 70%),radial-gradient(ellipse 50% 70% at 80% 30%,rgba(26,80,128,0.1) 0%,transparent 70%);pointer-events:none;}
-.hero-inner{position:relative;max-width:700px;margin:0 auto}
-.hero-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.85);font-size:0.75rem;font-weight:500;padding:5px 14px;border-radius:20px;margin-bottom:1.2rem;}
-.hero h1{font-family:'Fraunces',serif;font-size:clamp(1.8rem,5vw,3rem);font-weight:700;line-height:1.12;letter-spacing:-1px;margin-bottom:1rem;}
-.hero h1 em{color:#6ee89c;font-style:italic}
-.hero-sub{font-size:0.95rem;color:rgba(255,255,255,0.6);font-weight:300;max-width:480px;margin:0 auto 2rem;}
-.hero-cta{display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap}
-.btn-hero-p{background:var(--green-l);color:#fff;border:none;padding:11px 24px;border-radius:8px;font-size:0.92rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-.btn-hero-s{background:transparent;color:rgba(255,255,255,0.75);border:1px solid rgba(255,255,255,0.22);padding:11px 24px;border-radius:8px;font-size:0.92rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.hero{background:linear-gradient(135deg,#0f1117 0%,#1a1f2e 50%,#0f2a1a 100%);color:#fff;padding:3.5rem 1.25rem 2.5rem;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 20% 50%,rgba(34,197,94,0.12),transparent 60%),radial-gradient(ellipse 50% 60% at 80% 30%,rgba(37,99,235,0.1),transparent 60%);pointer-events:none;}
+.hero-inner{position:relative;max-width:680px;margin:0 auto}
+.hero-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:rgba(255,255,255,0.9);font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:20px;margin-bottom:1rem;letter-spacing:0.3px;}
+.hero h1{font-family:'Fraunces',serif;font-size:clamp(1.7rem,5vw,2.8rem);font-weight:700;line-height:1.1;letter-spacing:-0.5px;margin-bottom:0.9rem;}
+.hero h1 em{color:#4ade80;font-style:italic}
+.hero-sub{font-size:0.9rem;color:rgba(255,255,255,0.55);max-width:460px;margin:0 auto 1.8rem;}
+.hero-cta{display:flex;gap:0.65rem;justify-content:center;flex-wrap:wrap}
+.btn-hp{background:var(--green);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all 0.2s;}
+.btn-hp:hover{background:var(--green-l);transform:translateY(-1px)}
+.btn-hs{background:transparent;color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);padding:10px 22px;border-radius:8px;font-size:0.88rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+
 /* STATS */
 .stats-bar{background:var(--white);border-bottom:1px solid var(--border);display:flex;justify-content:center;flex-wrap:wrap;}
-.stat-item{padding:1rem 1.8rem;text-align:center;border-right:1px solid var(--border);}
+.stat-item{padding:0.9rem 1.5rem;text-align:center;border-right:1px solid var(--border);}
 .stat-item:last-child{border-right:none}
-.stat-n{font-family:'Fraunces',serif;font-size:1.5rem;font-weight:700;color:var(--green);line-height:1}
-.stat-l{font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
-/* USER WELCOME BANNER */
-.user-banner{background:var(--green-bg);border-bottom:1px solid var(--green-bg);padding:0.6rem 2rem;display:none;align-items:center;justify-content:center;gap:10px;font-size:0.85rem;color:var(--green);}
-.user-banner.show{display:flex}
-.user-banner img{width:24px;height:24px;border-radius:50%;}
+.stat-n{font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;color:var(--green);line-height:1}
+.stat-l{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
+
+/* BOTTOM NAV (Mobile App Feel) */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;z-index:40;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;color:var(--muted);font-size:0.6rem;font-weight:500;gap:3px;transition:color 0.2s;}
+.bn-item.active{color:var(--green)}
+.bn-icon{font-size:1.15rem}
+.bn-item.active .bn-icon{transform:scale(1.1)}
+
+/* PAGE TABS */
+.page-tab{display:none}
+.page-tab.active{display:block}
+
 /* LAYOUT */
-.page{max-width:1200px;margin:0 auto;padding:2rem 1.25rem}
-.layout{display:grid;grid-template-columns:1fr 300px;gap:1.75rem;align-items:start}
-@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:-1}}
-/* SEARCH */
-.search-row{display:flex;gap:0.6rem;margin-bottom:1.25rem;flex-wrap:wrap}
-.search-wrap{position:relative;flex:1;min-width:180px}
-.search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
-.search-input{width:100%;padding:9px 12px 9px 35px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.88rem;background:var(--white);color:var(--ink);outline:none;}
-.search-input:focus{border-color:var(--green-l)}
-.sort-sel{padding:9px 12px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;background:var(--white);color:var(--ink);outline:none;cursor:pointer;}
-/* FILTERS */
-.filters{display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1.25rem}
-.filter-btn{background:var(--white);border:1px solid var(--border2);color:var(--muted);padding:5px 12px;border-radius:20px;font-size:0.78rem;font-weight:500;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all 0.2s;}
-.filter-btn.active,.filter-btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.page{max-width:1160px;margin:0 auto;padding:1.5rem 1rem}
+.layout{display:grid;grid-template-columns:1fr 290px;gap:1.5rem;align-items:start}
+@media(max-width:860px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
+
+/* ADVANCED SEARCH */
+.search-panel{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow);}
+.search-panel-title{font-family:'Fraunces',serif;font-size:0.95rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
+.search-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;}
+@media(max-width:600px){.search-grid{grid-template-columns:1fr}}
+.s-inp,.s-sel{width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
+.s-inp:focus,.s-sel:focus{border-color:var(--green);background:var(--white)}
+.search-full{grid-column:1/-1}
+.search-btn{background:var(--green);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;}
+.clear-btn{background:var(--cream);color:var(--muted);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;cursor:pointer;}
+
 /* FEED */
-.feed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.5rem}
-.feed-title{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:600}
-.feed-count{font-size:0.8rem;color:var(--muted)}
-.ideas-feed{display:flex;flex-direction:column;gap:0.9rem}
+.feed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem}
+.feed-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600}
+.feed-count{font-size:0.78rem;color:var(--muted);background:var(--cream);padding:3px 10px;border-radius:12px;}
+.sort-sel{padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;background:var(--white);color:var(--ink);outline:none;cursor:pointer;}
+.ideas-feed{display:flex;flex-direction:column;gap:0.85rem}
+
+/* STATUS BADGES */
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-size:0.67rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;}
+.status-review{background:#fef3c7;color:#92400e;}
+.status-approved{background:#dbeafe;color:#1d4ed8;}
+.status-implemented{background:#dcfce7;color:#15803d;}
+.status-rejected{background:#fee2e2;color:#991b1b;}
+
 /* CARDS */
-.idea-card{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:1.25rem 1.35rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;}
-.idea-card:hover{transform:translateY(-2px);box-shadow:var(--shadow2)}
-@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-.card-head{display:flex;gap:0.75rem;align-items:flex-start}
-.vote-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0}
-.vote-up{width:32px;height:32px;border-radius:7px;border:1px solid var(--border2);background:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.85rem;color:var(--muted);transition:all 0.15s;}
-.vote-up:hover,.vote-up.voted{background:var(--green-bg);border-color:var(--green-l);color:var(--green)}
-.vote-num{font-size:0.88rem;font-weight:700;color:var(--ink)}
+.idea-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.1rem 1.2rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;position:relative;}
+.idea-card:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--border2)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card-head{display:flex;gap:0.7rem;align-items:flex-start}
+.vote-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0;padding-top:2px;}
+.vote-up,.vote-dn{width:30px;height:28px;border-radius:6px;border:1px solid var(--border2);background:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.8rem;color:var(--muted);transition:all 0.15s;font-weight:700;}
+.vote-up:hover,.vote-up.voted{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.vote-dn:hover,.vote-dn.downed{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.vote-score{font-size:0.82rem;font-weight:700;color:var(--ink);line-height:1;text-align:center;min-width:24px;}
+.vote-score.positive{color:var(--green)}
+.vote-score.negative{color:var(--red)}
 .card-body{flex:1;min-width:0}
-.card-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
-.tag{display:inline-block;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;padding:2px 8px;border-radius:4px}
-.tag-env{background:var(--green-bg);color:var(--green)}.tag-edu{background:var(--blue-bg);color:var(--blue)}.tag-health{background:var(--red-bg);color:var(--red)}.tag-tech{background:var(--amber-bg);color:var(--amber)}.tag-social{background:var(--purple-bg);color:var(--purple)}.tag-food{background:var(--teal-bg);color:var(--teal)}.tag-new{background:#fff3cd;color:#856404;font-size:0.62rem}
-.card-title{font-family:'Fraunces',serif;font-size:1rem;font-weight:600;margin-bottom:4px;line-height:1.3}
-.card-desc{font-size:0.83rem;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:0.8rem;flex-wrap:wrap;gap:0.5rem}
-.author-row{display:flex;align-items:center;gap:6px}
-.avatar{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.55rem;font-weight:700;color:#fff;flex-shrink:0}
-.author-name{font-size:0.76rem;color:var(--muted)}
-.card-meta{display:flex;gap:0.7rem}
-.meta-chip{font-size:0.72rem;color:var(--muted)}
-.wa-share-btn{background:#25D366;color:#fff;border:none;padding:5px 10px;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:3px;margin-top:0.4rem;text-decoration:none;}
-.wa-share-btn:hover{background:#1da851}
-/* EMPTY */
-.empty{text-align:center;padding:3rem 1rem;color:var(--muted)}
-.empty-icon{font-size:2.2rem;margin-bottom:0.6rem}
-.load-more-btn{width:100%;margin-top:1rem;padding:10px;background:var(--white);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.88rem;font-weight:500;color:var(--muted);cursor:pointer;}
+.card-tags{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px;align-items:center;}
+.tag{display:inline-block;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;padding:2px 7px;border-radius:4px}
+.tag-env{background:var(--green-bg);color:var(--green)}.tag-edu{background:var(--blue-bg);color:var(--blue)}.tag-health{background:var(--red-bg);color:var(--red)}.tag-tech{background:var(--amber-bg);color:var(--amber)}.tag-social{background:var(--purple-bg);color:var(--purple)}.tag-food{background:var(--teal-bg);color:var(--teal)}.tag-new{background:#fef9c3;color:#854d0e;font-size:0.6rem}
+.tag-mine{background:#e0f2fe;color:#0369a1;font-size:0.6rem}
+.card-title{font-family:'Fraunces',serif;font-size:0.97rem;font-weight:600;margin-bottom:4px;line-height:1.3}
+.card-desc{font-size:0.8rem;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:0.75rem;flex-wrap:wrap;gap:0.35rem}
+.author-row{display:flex;align-items:center;gap:5px}
+.avatar{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;color:#fff;flex-shrink:0;}
+.author-name{font-size:0.72rem;color:var(--muted)}
+.card-meta{display:flex;gap:0.6rem}
+.meta-chip{font-size:0.68rem;color:var(--muted)}
+.wa-btn{background:#25D366;color:#fff;border:none;padding:4px 9px;border-radius:5px;font-size:0.68rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:3px;text-decoration:none;}
+
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
+.empty-icon{font-size:2rem;margin-bottom:0.5rem}
+.load-more-btn{width:100%;margin-top:0.85rem;padding:9px;background:var(--white);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:500;color:var(--muted);cursor:pointer;}
+
 /* SIDEBAR */
-.sidebar{display:flex;flex-direction:column;gap:1rem}
-.s-card{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:1.15rem;box-shadow:var(--shadow)}
-.s-title{font-family:'Fraunces',serif;font-size:0.9rem;font-weight:600;margin-bottom:0.85rem;padding-bottom:0.55rem;border-bottom:1px solid var(--border)}
+.sidebar{display:flex;flex-direction:column;gap:0.9rem}
+.s-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow)}
+.s-title{font-family:'Fraunces',serif;font-size:0.88rem;font-weight:600;margin-bottom:0.8rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;}
+
 /* LOGIN CARD */
-.login-card-content{text-align:center;padding:0.5rem 0}
-.login-card-icon{font-size:2rem;margin-bottom:0.5rem}
-.login-card-text{font-size:0.82rem;color:var(--muted);margin-bottom:1rem;line-height:1.5}
-.google-login-btn{background:#fff;color:var(--ink);border:1px solid var(--border2);padding:9px 16px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow);}
-.google-login-btn:hover{background:var(--cream);box-shadow:var(--shadow2)}
-.google-icon{width:18px;height:18px}
-.user-profile-card{display:flex;align-items:center;gap:10px;padding:0.5rem 0}
-.user-profile-img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--green-l);}
-.user-profile-name{font-size:0.88rem;font-weight:600;color:var(--ink)}
-.user-profile-email{font-size:0.72rem;color:var(--muted)}
-.logout-card-btn{background:var(--red-bg);color:var(--red);border:1px solid var(--red);padding:7px 14px;border-radius:7px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.8rem;font-weight:600;cursor:pointer;width:100%;margin-top:0.75rem;}
+.google-login-btn{background:#fff;color:#333;border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
+.google-login-btn:hover{background:var(--cream)}
+.login-sub{font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;text-align:center;}
+.user-profile-card{display:flex;align-items:center;gap:9px;}
+.user-profile-img{width:36px;height:36px;border-radius:50%;border:2px solid var(--green);object-fit:cover;}
+.user-profile-name{font-size:0.85rem;font-weight:600}
+.user-profile-email{font-size:0.68rem;color:var(--muted)}
+.logout-link{font-size:0.72rem;color:var(--red);cursor:pointer;text-decoration:underline;margin-top:0.4rem;display:inline-block;}
+
 /* FORM */
-.form{display:flex;flex-direction:column;gap:0.65rem}
-.f-label{font-size:0.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;display:block}
-.f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;color:var(--ink);background:var(--cream);outline:none;}
-.f-inp:focus,.f-ta:focus,.f-sel:focus{border-color:var(--green-l);background:var(--white)}
-.f-ta{resize:vertical;min-height:75px}
+.form{display:flex;flex-direction:column;gap:0.6rem}
+.f-label{font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:1px;display:block}
+.f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
+.f-inp:focus,.f-ta:focus,.f-sel:focus{border-color:var(--green);background:var(--white)}
+.f-ta{resize:vertical;min-height:70px}
 .f-inp.error,.f-ta.error,.f-sel.error{border-color:var(--red)}
-.char-count{font-size:0.68rem;color:var(--muted);text-align:right;margin-top:1px}
-.submit-btn{background:var(--green);color:#fff;border:none;padding:9px 16px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.88rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
-.submit-btn:hover{background:var(--green-l)}
+.char-count{font-size:0.65rem;color:var(--muted);text-align:right;margin-top:1px}
+.submit-btn{background:var(--green);color:#fff;border:none;padding:9px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;width:100%;}
 .submit-btn:disabled{opacity:0.6;cursor:not-allowed}
-.form-error{font-size:0.72rem;color:var(--red);margin-top:1px}
-.wa-sidebar-btn{background:#25D366;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:0.4rem;}
-.login-required-msg{background:var(--amber-bg);border:1px solid #e8c87a;border-radius:8px;padding:0.75rem;font-size:0.82rem;color:var(--amber);text-align:center;cursor:pointer;}
-.login-required-msg:hover{background:#fde8a0}
+.form-error{font-size:0.68rem;color:var(--red)}
+.wa-sidebar-btn{background:#25D366;color:#fff;border:none;padding:8px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:5px;margin-top:0.4rem;text-decoration:none;}
+
 /* TREND */
-.trend-list{display:flex;flex-direction:column;gap:0.4rem}
-.trend-item{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.trend-list{display:flex;flex-direction:column;gap:0.35rem}
+.trend-item{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer;}
 .trend-item:last-child{border-bottom:none}
 .trend-item:hover .trend-name{color:var(--green)}
-.trend-name{font-size:0.83rem;color:var(--ink)}
-.trend-count{background:var(--green-bg);color:var(--green);font-size:0.7rem;font-weight:700;padding:2px 7px;border-radius:10px}
+.trend-name{font-size:0.8rem;color:var(--ink)}
+.trend-count{background:var(--green-bg);color:var(--green);font-size:0.67rem;font-weight:700;padding:2px 6px;border-radius:9px}
+
 /* COUNTRIES */
-.country-list{display:flex;flex-direction:column;gap:0.5rem}
-.country-row{display:flex;align-items:center;gap:7px}
-.c-flag{font-size:0.95rem;flex-shrink:0}.c-name{font-size:0.77rem;flex:0 0 65px}
+.country-list{display:flex;flex-direction:column;gap:0.45rem}
+.country-row{display:flex;align-items:center;gap:6px}
+.c-flag{font-size:0.9rem;flex-shrink:0}.c-name{font-size:0.74rem;flex:0 0 60px}
 .c-bar-bg{flex:1;height:4px;background:var(--green-bg);border-radius:3px;overflow:hidden}
 .c-bar{height:100%;background:var(--green-l);border-radius:3px}
-.c-num{font-size:0.7rem;color:var(--muted);flex:0 0 24px;text-align:right}
-/* CAT GRID */
-.cat-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.4rem}
-.cat-item{display:flex;align-items:center;gap:5px;font-size:0.75rem;padding:4px 7px;border-radius:6px;cursor:pointer;}
-.cat-item:hover{background:var(--cream)}
-.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
+/* LEADERBOARD TAB */
+.lb-section{margin-bottom:1.5rem}
+.lb-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:7px;}
+.lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
+@media(max-width:600px){.lb-grid{grid-template-columns:1fr}}
+.lb-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow);}
+.lb-item{display:flex;align-items:center;gap:10px;padding:0.65rem 0;border-bottom:1px solid var(--border);}
+.lb-item:last-child{border-bottom:none}
+.lb-rank{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;width:28px;text-align:center;flex-shrink:0;}
+.lb-rank.gold{color:#f59e0b}
+.lb-rank.silver{color:#9ca3af}
+.lb-rank.bronze{color:#cd7c3a}
+.lb-info{flex:1;min-width:0}
+.lb-name{font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-sub{font-size:0.7rem;color:var(--muted)}
+.lb-score{font-family:'Fraunces',serif;font-size:1rem;font-weight:700;color:var(--green);flex-shrink:0;}
+
 /* MODAL */
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px);}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px);}
 .overlay.open{display:flex;animation:fadeIn 0.2s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.modal{background:var(--white);border-radius:18px;padding:0;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
-.modal-close{position:absolute;top:0.85rem;right:0.85rem;width:30px;height:30px;border-radius:50%;border:1px solid var(--border2);background:var(--cream);font-size:0.95rem;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;z-index:2;}
-.modal-hero{padding:1.75rem 1.75rem 1rem;border-bottom:1px solid var(--border)}
-.modal-tags{margin-bottom:0.6rem;display:flex;gap:4px;flex-wrap:wrap}
-.modal-title{font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;line-height:1.2;margin-bottom:0.6rem}
-.modal-desc{font-size:0.9rem;color:var(--muted);line-height:1.7}
-.modal-body{padding:1.15rem 1.75rem}
-.modal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.65rem;margin-bottom:1rem}
-.m-stat{background:var(--cream);border-radius:9px;padding:0.75rem;text-align:center}
-.m-stat-n{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:var(--green)}
-.m-stat-l{font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:2px}
-.modal-author{display:flex;align-items:center;gap:9px;margin-bottom:1rem;padding:0.75rem;background:var(--cream);border-radius:9px}
-.modal-author .avatar{width:34px;height:34px;font-size:0.75rem}
-.modal-author-name{font-size:0.88rem;font-weight:600}
-.modal-author-sub{font-size:0.75rem;color:var(--muted)}
-.modal-actions{display:flex;gap:0.6rem;flex-wrap:wrap}
-.modal-actions button,.modal-actions a{flex:1;min-width:90px;padding:9px 10px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--white);color:var(--ink);text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;}
-.modal-vote-btn{background:var(--green) !important;color:#fff !important;border-color:var(--green) !important}
-.modal-vote-btn.voted-m{background:var(--green-bg) !important;color:var(--green) !important;border-color:var(--green-l) !important}
-.modal-wa-btn{background:#25D366 !important;color:#fff !important;border-color:#25D366 !important}
+.modal{background:var(--white);border-radius:20px;padding:0;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 64px rgba(0,0,0,0.22);}
+.modal-close{position:absolute;top:0.8rem;right:0.8rem;width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--cream);font-size:0.9rem;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;z-index:2;}
+.modal-hero{padding:1.5rem 1.5rem 1rem;border-bottom:1px solid var(--border)}
+.modal-tags{margin-bottom:0.6rem;display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
+.modal-title{font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;line-height:1.2;margin-bottom:0.6rem}
+.modal-desc{font-size:0.87rem;color:var(--muted);line-height:1.7}
+.modal-body{padding:1rem 1.5rem}
+.modal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem;margin-bottom:0.9rem}
+.m-stat{background:var(--cream);border-radius:9px;padding:0.7rem;text-align:center}
+.m-stat-n{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:700;color:var(--green)}
+.m-stat-l{font-size:0.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:1px}
+.modal-author{display:flex;align-items:center;gap:8px;margin-bottom:0.9rem;padding:0.7rem;background:var(--cream);border-radius:9px}
+.modal-author .avatar{width:32px;height:32px;font-size:0.7rem}
+.modal-author-name{font-size:0.85rem;font-weight:600}
+.modal-author-sub{font-size:0.7rem;color:var(--muted)}
+.modal-actions{display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.9rem;}
+.modal-actions button,.modal-actions a{flex:1;min-width:80px;padding:8px 10px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--white);color:var(--ink);text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;}
+.m-vote-btn{background:var(--green) !important;color:#fff !important;border-color:var(--green) !important}
+.m-vote-btn.voted-m{background:var(--green-bg) !important;color:var(--green) !important;border-color:var(--green) !important}
+.m-dn-btn{background:var(--white) !important}
+.m-dn-btn.downed-m{background:var(--red-bg) !important;color:var(--red) !important;border-color:var(--red) !important}
+.m-wa-btn{background:#25D366 !important;color:#fff !important;border-color:#25D366 !important}
+
+/* STATUS SELECTOR IN MODAL */
+.status-selector{margin-bottom:0.9rem;padding:0.75rem;background:var(--cream);border-radius:9px;}
+.status-sel-label{font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px;display:block;}
+.status-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--white);outline:none;cursor:pointer;}
+.admin-note{font-size:0.68rem;color:var(--muted);margin-top:4px;}
+
 /* COMMENTS */
-.comments-section{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
-.comments-title{font-size:0.83rem;font-weight:700;margin-bottom:0.65rem}
-.comment-box{display:flex;gap:7px;margin-bottom:0.65rem}
-.comment-input{flex:1;border:1px solid var(--border2);border-radius:7px;padding:7px 10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.8rem;color:var(--ink);background:var(--cream);outline:none;}
-.comment-input:focus{border-color:var(--green-l);background:var(--white)}
-.comment-submit{background:var(--green);color:#fff;border:none;padding:7px 12px;border-radius:7px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap}
-.comment-list{display:flex;flex-direction:column;gap:0.5rem}
-.comment-item{background:var(--cream);border-radius:7px;padding:0.6rem 0.75rem}
-.comment-meta{font-size:0.7rem;color:var(--muted);margin-bottom:2px;display:flex;align-items:center;gap:5px;}
-.comment-author-img{width:18px;height:18px;border-radius:50%;object-fit:cover;}
-.comment-text{font-size:0.8rem;color:var(--ink2)}
-/* EMAIL NOTIFICATION BADGE */
-.notif-badge{background:var(--amber-bg);border:1px solid #e8c87a;border-radius:8px;padding:0.5rem 0.75rem;font-size:0.75rem;color:var(--amber);display:flex;align-items:center;gap:6px;margin-top:0.5rem;}
+.comments-section{padding-top:0.9rem;border-top:1px solid var(--border)}
+.comments-title{font-size:0.8rem;font-weight:700;margin-bottom:0.6rem}
+.comment-box{display:flex;gap:6px;margin-bottom:0.6rem}
+.comment-input{flex:1;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;color:var(--ink);background:var(--cream);outline:none;}
+.comment-input:focus{border-color:var(--green);background:var(--white)}
+.comment-submit{background:var(--green);color:#fff;border:none;padding:6px 11px;border-radius:7px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.comment-list{display:flex;flex-direction:column;gap:0.45rem}
+.comment-item{background:var(--cream);border-radius:7px;padding:0.55rem 0.7rem}
+.comment-meta{font-size:0.67rem;color:var(--muted);margin-bottom:2px}
+.comment-text{font-size:0.78rem;color:var(--ink2)}
+
 /* TOAST */
-.toast{position:fixed;bottom:1.25rem;right:1.25rem;z-index:200;background:var(--ink);color:#fff;padding:0.75rem 1.1rem;border-radius:9px;font-size:0.85rem;font-weight:500;transform:translateY(70px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:280px;box-shadow:var(--shadow2);}
+.toast{position:fixed;bottom:80px;right:1rem;z-index:200;background:var(--ink);color:#fff;padding:0.7rem 1rem;border-radius:9px;font-size:0.82rem;font-weight:500;transform:translateY(60px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:260px;box-shadow:var(--shadow2);}
 .toast.show{transform:translateY(0);opacity:1}
-.toast.success{background:var(--green)}
-.toast.error{background:var(--red)}
-footer{background:var(--ink);color:rgba(255,255,255,0.5);text-align:center;padding:1.25rem;font-size:0.78rem;margin-top:2.5rem}
-footer span{color:#6ee89c}
-@media(max-width:600px){.hero{padding:2.5rem 1rem 2rem}.stat-item{padding:0.8rem 1rem}.page{padding:1.25rem 0.9rem}.modal-body,.modal-hero{padding:1.1rem}}
+.toast.success{background:var(--green)}.toast.error{background:var(--red)}
+
+footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.1rem;font-size:0.75rem;}
+footer span{color:#4ade80}
 </style>
 </head>
 <body>
 
+<!-- NAVBAR -->
 <nav class="nav">
   <a class="logo" href="#" onclick="return false">
     <div class="logo-dot">🌍</div>IdeaSphere
   </a>
   <div class="nav-right">
-    <button class="nav-link" onclick="scrollToFeed()">Explore</button>
-    <button class="nav-link" onclick="showAbout()">About</button>
-    <button class="lang-btn" onclick="toggleLang()" id="lang-toggle">🇮🇳 हिंदी</button>
+    <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
     <div id="auth-nav">
-      <button class="login-btn" onclick="loginGoogle()">
-        <svg class="google-icon" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-        Sign in
+      <button class="login-btn-nav" onclick="loginGoogle()">
+        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
       </button>
     </div>
-    <button class="nav-btn" onclick="scrollToForm()">+ Share Idea</button>
+    <button class="nav-btn" onclick="showTab('submit');scrollToTop()">+ Idea</button>
   </div>
 </nav>
 
-<!-- USER WELCOME BANNER -->
-<div class="user-banner" id="user-banner">
-  <img id="banner-img" src="" alt="">
-  <span id="banner-name"></span>
-  <span style="color:var(--green);font-size:0.8rem">— Welcome back! 🎉</span>
-</div>
-
+<!-- HERO -->
 <section class="hero">
-  <div class="hero-bg"></div>
   <div class="hero-inner">
-    <div class="hero-pill" id="hero-pill">🌱 Open Platform · 87 Countries · Free Forever</div>
-    <h1 id="hero-h1">Where <em>Community</em><br>Ideas Change the World</h1>
-    <p class="hero-sub" id="hero-sub">A global space for students and citizens to share, vote, and grow ideas that make our world better — one community at a time.</p>
+    <div class="hero-pill">🌱 Open Platform · 87 Countries · Free Forever</div>
+    <h1>Where <em>Community</em><br>Ideas Change the World</h1>
+    <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
     <div class="hero-cta">
-      <button class="btn-hero-p" onclick="scrollToForm()" id="btn-share-hero">Share Your Idea</button>
-      <button class="btn-hero-s" onclick="scrollToFeed()" id="btn-explore-hero">Explore Ideas ↓</button>
+      <button class="btn-hp" onclick="showTab('submit')">Share Your Idea</button>
+      <button class="btn-hs" onclick="showTab('explore')">Explore Ideas ↓</button>
     </div>
   </div>
 </section>
 
+<!-- STATS -->
 <div class="stats-bar">
-  <div class="stat-item"><div class="stat-n" id="stat-total">...</div><div class="stat-l">Ideas Shared</div></div>
+  <div class="stat-item"><div class="stat-n" id="stat-total">...</div><div class="stat-l">Ideas</div></div>
   <div class="stat-item"><div class="stat-n">87</div><div class="stat-l">Countries</div></div>
-  <div class="stat-item"><div class="stat-n" id="stat-votes">...</div><div class="stat-l">Votes Cast</div></div>
+  <div class="stat-item"><div class="stat-n" id="stat-votes">...</div><div class="stat-l">Votes</div></div>
   <div class="stat-item"><div class="stat-n">34</div><div class="stat-l">Implemented</div></div>
 </div>
 
+<!-- MAIN PAGE -->
 <div class="page">
-  <div class="layout">
-    <div id="feed-col">
-      <div class="search-row">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input class="search-input" id="search-input" type="text" placeholder="Search ideas…" oninput="onSearch()">
+
+  <!-- EXPLORE TAB -->
+  <div class="page-tab active" id="tab-explore">
+    <div class="layout">
+      <div>
+        <!-- ADVANCED SEARCH -->
+        <div class="search-panel">
+          <div class="search-panel-title">🔍 Advanced Search</div>
+          <div class="search-grid">
+            <input class="s-inp search-full" id="s-keyword" placeholder="Keywords, title, description…" oninput="doSearch()">
+            <select class="s-sel" id="s-cat" onchange="doSearch()">
+              <option value="">All Categories</option>
+              <option value="environment">🌿 Environment</option>
+              <option value="education">📚 Education</option>
+              <option value="health">❤️ Health</option>
+              <option value="tech">💻 Technology</option>
+              <option value="social">🤝 Social</option>
+              <option value="food">🌾 Food & Agriculture</option>
+            </select>
+            <input class="s-inp" id="s-country" placeholder="Country…" oninput="doSearch()">
+            <select class="s-sel" id="s-status" onchange="doSearch()">
+              <option value="">All Statuses</option>
+              <option value="Under Review">Under Review</option>
+              <option value="Approved">Approved</option>
+              <option value="Implemented">Implemented</option>
+            </select>
+            <select class="s-sel" id="s-sort" onchange="doSearch()">
+              <option value="newest">Newest First</option>
+              <option value="votes">Most Voted</option>
+              <option value="comments">Most Discussed</option>
+              <option value="score">Best Score</option>
+            </select>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="search-btn" onclick="doSearch()">Search</button>
+              <button class="clear-btn" onclick="clearSearch()">Clear</button>
+            </div>
+          </div>
         </div>
-        <select class="sort-sel" id="sort-sel" onchange="renderFeed()">
-          <option value="newest">Newest First</option>
-          <option value="votes">Most Voted</option>
-          <option value="comments">Most Discussed</option>
-        </select>
-      </div>
-      <div class="filters">
-        <button class="filter-btn active" data-cat="all" onclick="setFilter('all')">All</button>
-        <button class="filter-btn" data-cat="environment" onclick="setFilter('environment')">🌿 Environment</button>
-        <button class="filter-btn" data-cat="education" onclick="setFilter('education')">📚 Education</button>
-        <button class="filter-btn" data-cat="health" onclick="setFilter('health')">❤️ Health</button>
-        <button class="filter-btn" data-cat="tech" onclick="setFilter('tech')">💻 Technology</button>
-        <button class="filter-btn" data-cat="social" onclick="setFilter('social')">🤝 Social</button>
-        <button class="filter-btn" data-cat="food" onclick="setFilter('food')">🌾 Food & Agri</button>
-      </div>
-      <div class="feed-head">
-        <div class="feed-title" id="feed-title">Community Ideas</div>
-        <div class="feed-count" id="feed-count"></div>
-      </div>
-      <div class="ideas-feed" id="ideas-feed"><div class="empty"><div class="empty-icon">⏳</div><p>Loading ideas...</p></div></div>
-      <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMore()">Load more ↓</button>
-    </div>
 
-    <div class="sidebar">
+        <div class="feed-head">
+          <div class="feed-title">Community Ideas</div>
+          <div class="feed-count" id="feed-count"></div>
+        </div>
+        <div class="ideas-feed" id="ideas-feed"><div class="empty"><div class="empty-icon">⏳</div><p>Loading ideas...</p></div></div>
+        <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMore()">Load more ↓</button>
+      </div>
 
-      <!-- LOGIN CARD -->
-      <div class="s-card" id="login-card">
-        <div class="s-title">👤 Your Account</div>
-        <div id="login-card-body">
-          <div class="login-card-content">
-            <div class="login-card-icon">🔐</div>
-            <p class="login-card-text">Sign in with Google to submit ideas, vote, and get email notifications when someone votes on your idea!</p>
+      <div class="sidebar">
+        <!-- User Login -->
+        <div class="s-card">
+          <div class="s-title">👤 Account</div>
+          <div id="login-card-content">
+            <p class="login-sub">Login to submit ideas & get notifications!</p>
             <button class="google-login-btn" onclick="loginGoogle()">
-              <svg class="google-icon" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              Sign in with Google
+              <img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google
             </button>
           </div>
         </div>
+        <!-- Trending -->
+        <div class="s-card">
+          <div class="s-title">🔥 Trending Topics</div>
+          <div class="trend-list" id="trend-list"></div>
+        </div>
+        <!-- Countries -->
+        <div class="s-card">
+          <div class="s-title">🌐 Top Countries</div>
+          <div class="country-list" id="country-list"></div>
+        </div>
       </div>
+    </div>
+  </div>
 
-      <!-- SUBMIT FORM -->
-      <div class="s-card" id="form-card">
-        <div class="s-title">💡 Share Your Idea</div>
-        <div class="form" id="idea-form">
+  <!-- SUBMIT TAB -->
+  <div class="page-tab" id="tab-submit">
+    <div style="max-width:600px;margin:0 auto;">
+      <div class="s-card">
+        <div class="s-title" style="font-size:1.1rem;padding-bottom:0.75rem;margin-bottom:1rem;">💡 Share Your Idea with the World</div>
+        <div id="notif-info" style="background:var(--green-bg);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:var(--green);margin-bottom:1rem;display:none;">🔔 You'll get email notifications when people interact with your idea!</div>
+        <div class="form">
           <div>
             <label class="f-label">Idea Title *</label>
-            <input class="f-inp" id="f-title" placeholder="A clear, catchy name…" maxlength="100" oninput="updateCharCount('f-title','tc-title',100)">
+            <input class="f-inp" id="f-title" maxlength="100" oninput="updateCC('f-title','tc-title',100)" placeholder="A clear, catchy name…">
             <div class="char-count" id="tc-title">0 / 100</div>
             <div class="form-error" id="err-title"></div>
           </div>
           <div>
             <label class="f-label">Description *</label>
-            <textarea class="f-ta" id="f-desc" placeholder="What problem does it solve? How would it work?" maxlength="600" oninput="updateCharCount('f-desc','tc-desc',600)"></textarea>
+            <textarea class="f-ta" id="f-desc" maxlength="600" oninput="updateCC('f-desc','tc-desc',600)" placeholder="What problem does it solve? How would it work? Who benefits?"></textarea>
             <div class="char-count" id="tc-desc">0 / 600</div>
             <div class="form-error" id="err-desc"></div>
           </div>
@@ -400,40 +418,67 @@ footer span{color:#6ee89c}
             </select>
             <div class="form-error" id="err-cat"></div>
           </div>
-          <div>
-            <label class="f-label">Your Name</label>
-            <input class="f-inp" id="f-author" placeholder="Your name (or anonymous)" maxlength="50">
-          </div>
-          <div>
-            <label class="f-label">Country</label>
-            <input class="f-inp" id="f-country" placeholder="e.g. India, Brazil…" maxlength="40">
-          </div>
-          <div class="notif-badge" id="notif-badge" style="display:none">
-            📧 You'll get email notifications when someone votes on your idea!
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+            <div>
+              <label class="f-label">Your Name</label>
+              <input class="f-inp" id="f-author" maxlength="50" placeholder="Name or anonymous">
+            </div>
+            <div>
+              <label class="f-label">Country</label>
+              <input class="f-inp" id="f-country" maxlength="40" placeholder="e.g. India…">
+            </div>
           </div>
           <button class="submit-btn" type="button" onclick="submitIdea()" id="submit-btn">🚀 Submit Idea</button>
-          <button class="wa-sidebar-btn" onclick="shareWebsite()">📲 Share on WhatsApp</button>
+          <a class="wa-sidebar-btn" href="#" onclick="shareWebsite();return false;">📲 Share IdeaSphere on WhatsApp</a>
         </div>
-      </div>
-
-      <!-- TRENDING -->
-      <div class="s-card">
-        <div class="s-title">🔥 Trending Topics</div>
-        <div class="trend-list" id="trend-list"></div>
-      </div>
-      <!-- COUNTRIES -->
-      <div class="s-card">
-        <div class="s-title">🌐 Top Countries</div>
-        <div class="country-list" id="country-list"></div>
-      </div>
-      <!-- CATEGORIES -->
-      <div class="s-card">
-        <div class="s-title">📂 Categories</div>
-        <div class="cat-grid" id="cat-grid"></div>
       </div>
     </div>
   </div>
+
+  <!-- LEADERBOARD TAB -->
+  <div class="page-tab" id="tab-leaderboard">
+    <div class="lb-section">
+      <div class="lb-title">🏆 Top Ideas</div>
+      <div id="lb-ideas"></div>
+    </div>
+    <div class="lb-section">
+      <div class="lb-title">🌟 Top Contributors</div>
+      <div id="lb-contributors"></div>
+    </div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div class="page-tab" id="tab-profile">
+    <div style="max-width:500px;margin:0 auto;">
+      <div class="s-card" id="profile-content">
+        <div class="s-title">👤 Your Profile</div>
+        <div style="text-align:center;padding:1rem 0">
+          <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile and ideas!</p>
+          <button class="google-login-btn" onclick="loginGoogle()">
+            <img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <button class="bn-item active" id="bn-explore" onclick="showTab('explore')">
+    <span class="bn-icon">🔍</span>Explore
+  </button>
+  <button class="bn-item" id="bn-submit" onclick="showTab('submit')">
+    <span class="bn-icon">💡</span>Share
+  </button>
+  <button class="bn-item" id="bn-leaderboard" onclick="showTab('leaderboard')">
+    <span class="bn-icon">🏆</span>Leaderboard
+  </button>
+  <button class="bn-item" id="bn-profile" onclick="showTab('profile')">
+    <span class="bn-icon">👤</span>Profile
+  </button>
+</nav>
 
 <!-- MODAL -->
 <div class="overlay" id="overlay" onclick="overlayClick(event)">
@@ -446,9 +491,9 @@ footer span{color:#6ee89c}
     </div>
     <div class="modal-body">
       <div class="modal-stats">
-        <div class="m-stat"><div class="m-stat-n" id="m-votes">0</div><div class="m-stat-l">Votes</div></div>
+        <div class="m-stat"><div class="m-stat-n" id="m-votes">0</div><div class="m-stat-l">Upvotes</div></div>
         <div class="m-stat"><div class="m-stat-n" id="m-cmts">0</div><div class="m-stat-l">Comments</div></div>
-        <div class="m-stat"><div class="m-stat-n" id="m-reach">1</div><div class="m-stat-l">Countries</div></div>
+        <div class="m-stat"><div class="m-stat-n" id="m-score">0</div><div class="m-stat-l">Net Score</div></div>
       </div>
       <div class="modal-author">
         <div class="avatar" id="m-avatar"></div>
@@ -457,9 +502,21 @@ footer span{color:#6ee89c}
           <div class="modal-author-sub" id="m-author-sub"></div>
         </div>
       </div>
+      <!-- Status selector -->
+      <div class="status-selector" id="status-selector" style="display:none">
+        <span class="status-sel-label">📊 Update Status (Admin)</span>
+        <select class="status-sel" id="status-sel" onchange="updateIdeaStatus()">
+          <option value="Under Review">🔄 Under Review</option>
+          <option value="Approved">✅ Approved</option>
+          <option value="Implemented">🚀 Implemented</option>
+          <option value="Rejected">❌ Rejected</option>
+        </select>
+        <div class="admin-note">Only visible to idea owner</div>
+      </div>
       <div class="modal-actions">
-        <button class="modal-vote-btn" id="m-vote-btn" onclick="voteFromModal()">▲ Upvote</button>
-        <a class="modal-wa-btn" id="m-wa-btn" href="#" target="_blank">📲 WhatsApp</a>
+        <button class="m-vote-btn" id="m-vote-btn" onclick="voteFromModal('votes')">▲ Upvote</button>
+        <button class="m-dn-btn" id="m-dn-btn" onclick="voteFromModal('downvotes')">▼ Downvote</button>
+        <a class="m-wa-btn" id="m-wa-btn" href="#" onclick="shareIdeaWA();return false;">📲 Share</a>
         <button onclick="closeModal()">Close</button>
       </div>
       <div class="comments-section">
@@ -477,394 +534,395 @@ footer span{color:#6ee89c}
 <div class="toast" id="toast"></div>
 
 <footer>
-  <p>Made with <span>♥</span> for Thinkfinity worldwide · IdeaSphere © 2026</p>
+  <p>Made with <span>♥</span> for Thinkfinity worldwide · IdeaSphere © 2025</p>
 </footer>
 
 <script>
-// ══ EMAILJS INIT ══
-emailjs.init('NX-Nh_CaDvJLi357V');
-
-const EMAILJS_SERVICE = 'service_tlgp8gj';
-const EMAILJS_TEMPLATE = 'template_maj59l';
-const ADMIN_EMAIL = 'Upadhyay7204@gmail.com';
-
-// ══ CONSTANTS ══
 const CAT_META = {
-  environment:{ label:'Environment', emoji:'🌿', tagClass:'tag-env', color:'#1f6b43', dotColor:'#2e9460' },
-  education:  { label:'Education',   emoji:'📚', tagClass:'tag-edu', color:'#1a5080', dotColor:'#3a8ac0' },
-  health:     { label:'Health',      emoji:'❤️',  tagClass:'tag-health',color:'#b83030',dotColor:'#d85050' },
-  tech:       { label:'Technology',  emoji:'💻', tagClass:'tag-tech', color:'#9a6010', dotColor:'#c8901a' },
-  social:     { label:'Social',      emoji:'🤝', tagClass:'tag-social',color:'#5a2d8a',dotColor:'#8050c0' },
-  food:       { label:'Food & Agri', emoji:'🌾', tagClass:'tag-food', color:'#0d6e6e', dotColor:'#1a9898' },
+  environment:{ label:'Environment', emoji:'🌿', tagClass:'tag-env', color:'#16a34a', dotColor:'#22c55e' },
+  education:  { label:'Education',   emoji:'📚', tagClass:'tag-edu', color:'#2563eb', dotColor:'#3b82f6' },
+  health:     { label:'Health',      emoji:'❤️',  tagClass:'tag-health',color:'#dc2626',dotColor:'#ef4444' },
+  tech:       { label:'Technology',  emoji:'💻', tagClass:'tag-tech', color:'#d97706', dotColor:'#f59e0b' },
+  social:     { label:'Social',      emoji:'🤝', tagClass:'tag-social',color:'#7c3aed',dotColor:'#8b5cf6' },
+  food:       { label:'Food & Agri', emoji:'🌾', tagClass:'tag-food', color:'#0d9488', dotColor:'#14b8a6' },
 };
-const AV_COLORS=['#1f6b43','#1a5080','#b83030','#9a6010','#5a2d8a','#0d6e6e'];
-const FLAG_MAP={'india':'🇮🇳','brazil':'🇧🇷','nigeria':'🇳🇬','usa':'🇺🇸','ghana':'🇬🇭','pakistan':'🇵🇰','kenya':'🇰🇪','bangladesh':'🇧🇩','indonesia':'🇮🇩','mexico':'🇲🇽','ethiopia':'🇪🇹','egypt':'🇪🇬','china':'🇨🇳','uk':'🇬🇧','germany':'🇩🇪','france':'🇫🇷','japan':'🇯🇵'};
-
+const AV_COLORS=['#16a34a','#2563eb','#dc2626','#d97706','#7c3aed','#0d9488'];
+const STATUS_CLASS = {'Under Review':'status-review','Approved':'status-approved','Implemented':'status-implemented','Rejected':'status-rejected'};
+const STATUS_EMOJI = {'Under Review':'🔄','Approved':'✅','Implemented':'🚀','Rejected':'❌'};
 function getAC(n){let h=0;for(let c of n||'?')h=(h*31+c.charCodeAt(0))&0xffff;return AV_COLORS[h%AV_COLORS.length];}
 function ini(n){return(n||'?').split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase()||'??';}
-function timeAgo(ts){if(!ts)return'just now';const s=Math.floor((Date.now()-(ts.seconds?ts.seconds*1000:ts))/1000);if(s<60)return'just now';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
+function timeAgo(ts){if(!ts)return'now';const s=Math.floor((Date.now()-(ts.seconds?ts.seconds*1000:ts))/1000);if(s<60)return'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 
-let state = { filter:'all', search:'', sort:'newest', modalId:null, page:1, votedIds:new Set(JSON.parse(localStorage.getItem('is_voted')||'[]')) };
+let state = {
+  filter:'all', search:'', sort:'newest', modalId:null, page:1,
+  votedUp: new Set(JSON.parse(localStorage.getItem('is_voted_up')||'[]')),
+  votedDn: new Set(JSON.parse(localStorage.getItem('is_voted_dn')||'[]')),
+  currentTab: 'explore'
+};
 window.__ideas = [];
-let lang = localStorage.getItem('is_lang')||'en';
+
+// ══ TABS ══
+function showTab(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bn-item').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  document.getElementById('bn-'+tab).classList.add('active');
+  if(tab==='leaderboard') renderLeaderboard();
+  if(tab==='profile') renderProfile();
+  window.scrollTo(0,0);
+}
+function scrollToTop(){ window.scrollTo({top:0,behavior:'smooth'}); }
 
 // ══ AUTH UI ══
 window.updateAuthUI = function(user) {
   const authNav = document.getElementById('auth-nav');
-  const loginCardBody = document.getElementById('login-card-body');
-  const notifBadge = document.getElementById('notif-badge');
-  const userBanner = document.getElementById('user-banner');
-
+  const lcc = document.getElementById('login-card-content');
+  const ni = document.getElementById('notif-info');
   if(user) {
-    // Nav
-    authNav.innerHTML = `<div class="user-nav">
-      <img class="user-nav-avatar" src="${user.photoURL||''}" alt="">
-      <span class="user-nav-name">${user.displayName?.split(' ')[0]||'User'}</span>
-      <button class="logout-btn" onclick="logoutUser()">Sign out</button>
-    </div>`;
-
-    // Login card
-    loginCardBody.innerHTML = `<div class="user-profile-card">
-      <img class="user-profile-img" src="${user.photoURL||''}" alt="">
-      <div>
-        <div class="user-profile-name">${user.displayName||'User'}</div>
-        <div class="user-profile-email">${user.email||''}</div>
-      </div>
-    </div>
-    <div style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;padding:0.5rem;background:var(--green-bg);border-radius:7px">
-      📧 Email notifications are <strong>ON</strong> — you'll be notified when someone votes on your ideas!
-    </div>
-    <button class="logout-card-btn" onclick="logoutUser()">Sign Out</button>`;
-
-    // Auto-fill name
-    if(document.getElementById('f-author').value==='')
-      document.getElementById('f-author').value = user.displayName||'';
-
-    // Notif badge
-    notifBadge.style.display = 'flex';
-
-    // Welcome banner
-    document.getElementById('banner-img').src = user.photoURL||'';
-    document.getElementById('banner-name').textContent = user.displayName||'User';
-    userBanner.classList.add('show');
-
+    authNav.innerHTML = `<div class="user-nav"><img class="user-nav-img" src="${user.photoURL||''}" onerror="this.style.display='none'"><span class="user-nav-name">${user.displayName?.split(' ')[0]||'User'}</span><button class="logout-btn" onclick="logoutUser()">Out</button></div>`;
+    lcc.innerHTML = `<div class="user-profile-card"><img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'"><div><div class="user-profile-name">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div></div><a class="logout-link" onclick="logoutUser()">Sign out</a>`;
+    if(!document.getElementById('f-author').value) document.getElementById('f-author').value = user.displayName||'';
+    if(ni) ni.style.display='block';
   } else {
-    authNav.innerHTML = `<button class="login-btn" onclick="loginGoogle()">
-      <svg class="google-icon" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-      Sign in
-    </button>`;
-
-    loginCardBody.innerHTML = `<div class="login-card-content">
-      <div class="login-card-icon">🔐</div>
-      <p class="login-card-text">Sign in with Google to submit ideas, vote, and get email notifications!</p>
-      <button class="google-login-btn" onclick="loginGoogle()">
-        <svg class="google-icon" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-        Sign in with Google
-      </button>
-    </div>`;
-
-    notifBadge.style.display = 'none';
-    userBanner.classList.remove('show');
+    authNav.innerHTML = `<button class="login-btn-nav" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In</button>`;
+    lcc.innerHTML = `<p class="login-sub">Login to submit ideas & get notifications!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button>`;
+    if(ni) ni.style.display='none';
   }
-};
-
-function loginGoogle() {
-  if(window.__loginGoogle) window.__loginGoogle();
-  else showToast('Loading... please wait','');
 }
 
-function logoutUser() {
-  if(window.__logout) window.__logout();
-  showToast('Signed out successfully','');
-}
+async function loginGoogle(){ if(window.__loginGoogle) await window.__loginGoogle(); }
+async function logoutUser(){ if(window.__logout) await window.__logout(); showToast('Signed out.',''); }
 
-// ══ EMAIL NOTIFICATION ══
-async function sendNotification(type, idea, voterName) {
-  if(!idea || !idea.authorEmail) return;
-  try {
-    await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
-      to_email: idea.authorEmail,
-      to_name: idea.author || 'IdeaSphere User',
-      from_name: voterName || 'Someone',
-      idea_title: idea.title || 'Your Idea',
-      type: type,
-      message: type === 'vote'
-        ? `${voterName || 'Someone'} upvoted your idea "${idea.title}" on IdeaSphere! Your idea now has ${idea.votes + 1} votes. Keep sharing!`
-        : `${voterName || 'Someone'} commented on your idea "${idea.title}" on IdeaSphere!`,
-      reply_to: ADMIN_EMAIL
-    });
-  } catch(e) { console.log('Email notification error:', e); }
+// ══ SEARCH ══
+function doSearch(){
+  state.page=1;
+  state.keyword = document.getElementById('s-keyword').value.toLowerCase();
+  state.catF = document.getElementById('s-cat').value;
+  state.countryF = document.getElementById('s-country').value.toLowerCase();
+  state.statusF = document.getElementById('s-status').value;
+  state.sort = document.getElementById('s-sort').value;
+  renderFeed();
 }
-
-// Also notify admin of new idea
-async function notifyAdmin(idea) {
-  try {
-    await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
-      to_email: ADMIN_EMAIL,
-      to_name: 'IdeaSphere Admin',
-      from_name: idea.author || 'Anonymous',
-      idea_title: idea.title,
-      type: 'new idea',
-      message: `New idea submitted on IdeaSphere!\n\nTitle: ${idea.title}\nCategory: ${idea.category}\nAuthor: ${idea.author}\nCountry: ${idea.country}\n\nDescription: ${idea.desc}`,
-      reply_to: idea.authorEmail || ADMIN_EMAIL
-    });
-  } catch(e) { console.log('Admin notify error:', e); }
+function clearSearch(){
+  ['s-keyword','s-country'].forEach(id=>document.getElementById(id).value='');
+  ['s-cat','s-status'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('s-sort').value='newest';
+  state.keyword=''; state.catF=''; state.countryF=''; state.statusF=''; state.sort='newest';
+  state.page=1; renderFeed();
 }
 
 // ══ FEED ══
 function getFiltered(){
   let list=[...(window.__ideas||[])];
-  if(state.filter!=='all') list=list.filter(i=>i.category===state.filter);
-  if(state.search.trim()){const q=state.search.trim().toLowerCase();list=list.filter(i=>(i.title||'').toLowerCase().includes(q)||(i.desc||'').toLowerCase().includes(q)||(i.author||'').toLowerCase().includes(q)||(i.country||'').toLowerCase().includes(q));}
-  if(state.sort==='votes') list.sort((a,b)=>(b.votes||0)-(a.votes||0));
-  else if(state.sort==='comments') list.sort((a,b)=>(b.comments||[]).length-(a.comments||[]).length);
+  if(state.catF) list=list.filter(i=>i.category===state.catF);
+  if(state.statusF) list=list.filter(i=>(i.status||'Under Review')===state.statusF);
+  if(state.keyword){const q=state.keyword;list=list.filter(i=>(i.title||'').toLowerCase().includes(q)||(i.desc||'').toLowerCase().includes(q)||(i.author||'').toLowerCase().includes(q));}
+  if(state.countryF){const q=state.countryF;list=list.filter(i=>(i.country||'').toLowerCase().includes(q));}
+  const sort=state.sort||'newest';
+  if(sort==='votes') list.sort((a,b)=>(b.votes||0)-(a.votes||0));
+  else if(sort==='comments') list.sort((a,b)=>(b.comments||[]).length-(a.comments||[]).length);
+  else if(sort==='score') list.sort((a,b)=>((b.votes||0)-(b.downvotes||0))-((a.votes||0)-(a.downvotes||0)));
   else list.sort((a,b)=>(b.ts?.seconds||0)-(a.ts?.seconds||0));
   return list;
 }
 
+window.renderAll = function(){
+  renderFeed();
+  renderSidebar();
+  updateStats();
+  if(state.currentTab==='leaderboard') renderLeaderboard();
+  if(state.currentTab==='profile') renderProfile();
+}
+
 window.renderFeed = function(){
-  state.sort = document.getElementById('sort-sel').value;
-  const filtered = getFiltered();
-  const total = filtered.length;
-  const visible = filtered.slice(0, state.page * 6);
-  const el = document.getElementById('ideas-feed');
-  const lm = document.getElementById('load-more-btn');
-  document.getElementById('feed-count').textContent = total ? total+' idea'+(total!==1?'s':'') : '';
-
-  if(!total){
-    el.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><p>No ideas found.</p></div>';
-    lm.style.display='none'; return;
-  }
-
-  el.innerHTML = visible.map((idea, i) => {
-    const cm = CAT_META[idea.category]||CAT_META.social;
-    const av = getAC(idea.author||'?');
-    const isNew = (idea.ts?.seconds&&(Date.now()/1000-idea.ts.seconds)<86400);
-    const voted = state.votedIds.has(idea.id);
-    const waMsg = encodeURIComponent(`💡 *${idea.title}*\n\n${idea.desc}\n\n🌍 Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
-    const authorImg = idea.authorPhoto ? `<img src="${idea.authorPhoto}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" alt="">` : `<div class="avatar" style="background:${av}">${ini(idea.author||'?')}</div>`;
-
+  const filtered=getFiltered();
+  const total=filtered.length;
+  const visible=filtered.slice(0,state.page*6);
+  const el=document.getElementById('ideas-feed');
+  const lm=document.getElementById('load-more-btn');
+  document.getElementById('feed-count').textContent=total?total+' idea'+(total!==1?'s':''):'';
+  if(!total){el.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><p>No ideas found. Try different filters!</p></div>';lm.style.display='none';return;}
+  const cue = window.__currentUser?.email;
+  el.innerHTML=visible.map((idea,i)=>{
+    const cm=CAT_META[idea.category]||CAT_META.social;
+    const av=getAC(idea.author||'?');
+    const isNew=(idea.ts?.seconds&&(Date.now()/1000-idea.ts.seconds)<86400);
+    const isMine=cue&&idea.ownerEmail===cue;
+    const votedU=state.votedUp.has(idea.id);
+    const votedD=state.votedDn.has(idea.id);
+    const score=(idea.votes||0)-(idea.downvotes||0);
+    const status=idea.status||'Under Review';
+    const waMsg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,100)}...\n\n🌍 IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
     return `<div class="idea-card" style="animation-delay:${Math.min(i,5)*0.05}s" onclick="openModal('${idea.id}')">
       <div class="card-head">
         <div class="vote-col" onclick="event.stopPropagation()">
-          <button class="vote-up${voted?' voted':''}" onclick="toggleVote('${idea.id}')" title="Upvote">▲</button>
-          <span class="vote-num" id="vn-${idea.id}">${idea.votes||0}</span>
+          <button class="vote-up${votedU?' voted':''}" onclick="toggleVote('${idea.id}','votes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▲</button>
+          <span class="vote-score${score>0?' positive':score<0?' negative':''}">${score}</span>
+          <button class="vote-dn${votedD?' downed':''}" onclick="toggleVote('${idea.id}','downvotes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▼</button>
         </div>
         <div class="card-body">
-          <div class="card-tags"><span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span>${isNew?'<span class="tag tag-new">✨ New</span>':''}</div>
+          <div class="card-tags">
+            <span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span>
+            <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]||'🔄'} ${status}</span>
+            ${isNew?'<span class="tag tag-new">✨ New</span>':''}
+            ${isMine?'<span class="tag tag-mine">👤 Mine</span>':''}
+          </div>
           <div class="card-title">${esc(idea.title)}</div>
           <div class="card-desc">${esc(idea.desc)}</div>
         </div>
       </div>
       <div class="card-foot">
         <div class="author-row">
-          ${authorImg}
+          <div class="avatar" style="background:${av}">${ini(idea.author||'?')}</div>
           <span class="author-name">${esc(idea.author||'Anonymous')}</span>
           ${idea.country?`<span class="author-name">${idea.flag||'🌍'} ${esc(idea.country)}</span>`:''}
+          <span class="author-name">· ${timeAgo(idea.ts)}</span>
         </div>
-        <div class="card-meta">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
           <span class="meta-chip">💬 ${(idea.comments||[]).length}</span>
-          <span class="meta-chip">🌍 ${idea.reach||1}</span>
-          <span class="meta-chip">🕐 ${timeAgo(idea.ts)}</span>
+          <a href="https://wa.me/?text=${waMsg}" target="_blank" class="wa-btn" onclick="event.stopPropagation()">📲 Share</a>
         </div>
       </div>
-      <a href="https://wa.me/?text=${waMsg}" target="_blank" class="wa-share-btn" onclick="event.stopPropagation()">📲 Share on WhatsApp</a>
     </div>`;
   }).join('');
-  lm.style.display = visible.length < total ? 'block' : 'none';
-};
+  lm.style.display=visible.length<total?'block':'none';
+}
 
 window.updateStats = function(){
-  const ideas = window.__ideas||[];
-  document.getElementById('stat-total').textContent = ideas.length.toLocaleString();
-  document.getElementById('stat-votes').textContent = ideas.reduce((s,i)=>s+(i.votes||0),0).toLocaleString();
-};
+  const ideas=window.__ideas||[];
+  document.getElementById('stat-total').textContent=ideas.length.toLocaleString();
+  document.getElementById('stat-votes').textContent=ideas.reduce((s,i)=>s+(i.votes||0),0).toLocaleString();
+}
 
 window.renderSidebar = function(){
-  const TOPICS=[{n:'Clean Water Access',c:142},{n:'Rural Education',c:118},{n:'Plastic-Free Cities',c:97},{n:'Mental Health',c:83},{n:'Solar Energy',c:71},{n:'Food Security',c:65},{n:'Women Safety',c:58}];
-  document.getElementById('trend-list').innerHTML=TOPICS.map(t=>`<div class="trend-item" onclick="document.getElementById('search-input').value='${t.n.split(' ')[0]}';onSearch()"><span class="trend-name">${t.n}</span><span class="trend-count">${t.c}</span></div>`).join('');
+  const TOPICS=[{n:'Clean Water',c:142},{n:'Rural Education',c:118},{n:'Plastic-Free',c:97},{n:'Mental Health',c:83},{n:'Solar Energy',c:71},{n:'Food Security',c:65}];
+  document.getElementById('trend-list').innerHTML=TOPICS.map(t=>`<div class="trend-item" onclick="document.getElementById('s-keyword').value='${t.n.split(' ')[0]}';doSearch();showTab('explore')"><span class="trend-name">${t.n}</span><span class="trend-count">${t.c}</span></div>`).join('');
   const COUNTRIES=[{flag:'🇮🇳',name:'India',pct:85},{flag:'🇧🇷',name:'Brazil',pct:68},{flag:'🇳🇬',name:'Nigeria',pct:56},{flag:'🇺🇸',name:'USA',pct:49},{flag:'🇬🇭',name:'Ghana',pct:42},{flag:'🇵🇰',name:'Pakistan',pct:35}];
-  document.getElementById('country-list').innerHTML=COUNTRIES.map(c=>`<div class="country-row"><span class="c-flag">${c.flag}</span><span class="c-name">${c.name}</span><div class="c-bar-bg"><div class="c-bar" style="width:${c.pct}%"></div></div><span class="c-num">${c.pct}</span></div>`).join('');
-  const ideas=window.__ideas||[];
-  document.getElementById('cat-grid').innerHTML=Object.entries(CAT_META).map(([key,cm])=>{const count=ideas.filter(i=>i.category===key).length;return`<div class="cat-item" onclick="setFilter('${key}')"><div class="cat-dot" style="background:${cm.dotColor}"></div><span>${cm.emoji} ${cm.label} <span style="color:var(--muted)">(${count})</span></span></div>`;}).join('');
-};
+  document.getElementById('country-list').innerHTML=COUNTRIES.map(c=>`<div class="country-row"><span class="c-flag">${c.flag}</span><span class="c-name">${c.name}</span><div class="c-bar-bg"><div class="c-bar" style="width:${c.pct}%"></div></div></div>`).join('');
+}
 
-function setFilter(cat){ state.filter=cat; state.page=1; document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat)); renderFeed(); }
-function onSearch(){ state.search=document.getElementById('search-input').value; state.page=1; renderFeed(); }
-function loadMore(){ state.page++; renderFeed(); }
+// ══ LEADERBOARD ══
+function renderLeaderboard(){
+  const ideas=window.__ideas||[];
+  // Top ideas by score
+  const topIdeas=[...ideas].sort((a,b)=>((b.votes||0)-(b.downvotes||0))-((a.votes||0)-(a.downvotes||0))).slice(0,8);
+  document.getElementById('lb-ideas').innerHTML=`<div class="lb-card">${topIdeas.map((idea,i)=>{
+    const score=(idea.votes||0)-(idea.downvotes||0);
+    const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
+    return `<div class="lb-item" onclick="openModal('${idea.id}')" style="cursor:pointer">
+      <div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
+      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} · ${idea.flag||'🌍'} ${esc(idea.country||'')}</div></div>
+      <div class="lb-score">${score>0?'+':''}${score}</div>
+    </div>`;
+  }).join('')}</div>`;
+  // Top contributors
+  const contribs={};
+  ideas.forEach(i=>{
+    const k=i.ownerEmail||i.author||'Anonymous';
+    if(!contribs[k]) contribs[k]={name:i.ownerName||i.author||'Anonymous',flag:i.flag||'🌍',country:i.country||'',ideas:0,votes:0};
+    contribs[k].ideas++;
+    contribs[k].votes+=(i.votes||0);
+  });
+  const topContribs=Object.values(contribs).sort((a,b)=>b.votes-a.votes).slice(0,8);
+  document.getElementById('lb-contributors').innerHTML=`<div class="lb-card">${topContribs.map((c,i)=>{
+    const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
+    return `<div class="lb-item">
+      <div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
+      <div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} · ${c.ideas} idea${c.ideas!==1?'s':''}</div></div>
+      <div class="lb-score">👍 ${c.votes}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// ══ PROFILE ══
+function renderProfile(){
+  const user=window.__currentUser;
+  const pc=document.getElementById('profile-content');
+  if(!user){pc.innerHTML='<div class="s-title">👤 Your Profile</div><div style="text-align:center;padding:1rem 0"><p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button></div>';return;}
+  const myIdeas=(window.__ideas||[]).filter(i=>i.ownerEmail===user.email);
+  const totalVotes=myIdeas.reduce((s,i)=>s+(i.votes||0),0);
+  pc.innerHTML=`<div class="s-title">👤 Your Profile</div>
+    <div class="user-profile-card" style="margin-bottom:1rem;">
+      <img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'" style="width:50px;height:50px;">
+      <div><div class="user-profile-name" style="font-size:1rem;">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
+      <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Ideas</div></div>
+      <div class="m-stat"><div class="m-stat-n">${totalVotes}</div><div class="m-stat-l">Votes Got</div></div>
+      <div class="m-stat"><div class="m-stat-n">${myIdeas.filter(i=>i.status==='Implemented').length}</div><div class="m-stat-l">Implemented</div></div>
+    </div>
+    <div style="font-family:'Fraunces',serif;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem;">Your Ideas</div>
+    ${myIdeas.length?myIdeas.map(idea=>{
+      const status=idea.status||'Under Review';
+      return `<div style="padding:0.65rem;background:var(--cream);border-radius:8px;margin-bottom:0.5rem;cursor:pointer;" onclick="openModal('${idea.id}')">
+        <div style="font-size:0.82rem;font-weight:600;margin-bottom:3px;">${esc(idea.title)}</div>
+        <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span>
+        <span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">👍 ${idea.votes||0} votes · 💬 ${(idea.comments||[]).length}</span>
+      </div>`;
+    }).join(''):'<p style="font-size:0.8rem;color:var(--muted);">No ideas yet. Share your first idea!</p>'}
+    <a class="logout-link" onclick="logoutUser()" style="margin-top:0.75rem;">Sign out</a>`;
+}
 
 // ══ VOTE ══
-async function toggleVote(id){
-  if(!window.__voteIdea){ showToast('Connecting...',''); return; }
-  const idea = (window.__ideas||[]).find(i=>i.id===id);
-  if(!idea) return;
-  const voted = state.votedIds.has(id);
+async function toggleVote(id, field, ideaTitle, ownerEmail, ownerName){
+  if(!window.__voteIdea){showToast('Connecting...','');return;}
+  const isUp = field==='votes';
+  const votedSet = isUp ? state.votedUp : state.votedDn;
+  const otherSet = isUp ? state.votedDn : state.votedUp;
+  const otherField = isUp ? 'downvotes' : 'votes';
+  const voted = votedSet.has(id);
   const val = voted ? -1 : 1;
-  if(voted) state.votedIds.delete(id); else state.votedIds.add(id);
-  localStorage.setItem('is_voted', JSON.stringify([...state.votedIds]));
-  try {
-    await window.__voteIdea(id, val);
-    showToast(val > 0 ? '▲ Upvoted!' : 'Vote removed.', val>0?'success':'');
-    if(state.modalId===id){
-      const btn=document.getElementById('m-vote-btn');
-      btn.classList.toggle('voted-m',!voted);
-      btn.textContent=(!voted)?'✓ Voted':'▲ Upvote';
+  if(voted) votedSet.delete(id); else { votedSet.add(id); otherSet.delete(id); }
+  localStorage.setItem('is_voted_up', JSON.stringify([...state.votedUp]));
+  localStorage.setItem('is_voted_dn', JSON.stringify([...state.votedDn]));
+  try{
+    await window.__voteIdea(id, field, val);
+    if(!voted && otherSet !== (isUp?state.votedUp:state.votedDn)) {
+      // Remove opposite vote if switching
     }
-    // Send email notification to idea author if voting up
-    if(val > 0 && idea.authorEmail) {
-      const voter = window.__currentUser?.displayName || 'Someone';
-      await sendNotification('vote', idea, voter);
+    if(isUp && val>0 && ownerEmail && window.__sendNotif) {
+      window.__sendNotif(ownerEmail, ideaTitle, window.__currentUser?.displayName||'Someone', 'vote');
     }
-  } catch(e) { showToast('Error. Try again.','error'); }
+    showToast(val>0?(isUp?'▲ Upvoted! 🎉':'▼ Downvoted'):'Vote removed.',val>0&&isUp?'success':'');
+  }catch(e){showToast('Error. Try again.','error');}
 }
 
 // ══ FORM ══
-function updateCharCount(inputId, countId, max){ const v=document.getElementById(inputId).value.length; document.getElementById(countId).textContent=`${v} / ${max}`; }
+function updateCC(inputId,countId,max){const v=document.getElementById(inputId).value.length;document.getElementById(countId).textContent=`${v} / ${max}`;}
 
 async function submitIdea(){
-  ['title','desc','cat'].forEach(f=>{ document.getElementById('err-'+f).textContent=''; document.getElementById('f-'+f).classList.remove('error'); });
-  const title = document.getElementById('f-title').value.trim();
-  const desc = document.getElementById('f-desc').value.trim();
-  const cat = document.getElementById('f-cat').value;
-  const author = document.getElementById('f-author').value.trim() || (window.__currentUser?.displayName||'Anonymous');
-  const country = document.getElementById('f-country').value.trim();
-  let valid = true;
-  if(!title){ document.getElementById('err-title').textContent='Title is required.'; document.getElementById('f-title').classList.add('error'); valid=false; }
-  if(!desc||desc.length<20){ document.getElementById('err-desc').textContent='Please add more detail (min 20 chars).'; document.getElementById('f-desc').classList.add('error'); valid=false; }
-  if(!cat){ document.getElementById('err-cat').textContent='Please select a category.'; document.getElementById('f-cat').classList.add('error'); valid=false; }
-  if(!valid) return;
-  if(!window.__submitIdea){ showToast('Please wait...','error'); return; }
-
-  const btn = document.getElementById('submit-btn');
-  btn.disabled = true; btn.innerHTML = '⏳ Submitting…';
-
-  const flag = country?(FLAG_MAP[country.toLowerCase()]||'🌍'):'🌍';
-  const ideaData = {
-    title, desc, category: cat, author, country, flag,
-    authorEmail: window.__currentUser?.email || '',
-    authorPhoto: window.__currentUser?.photoURL || '',
-    authorUid: window.__currentUser?.uid || ''
-  };
-
-  try {
-    await window.__submitIdea(ideaData);
-    ['f-title','f-desc','f-country'].forEach(id=>document.getElementById(id).value='');
+  ['title','desc','cat'].forEach(f=>{document.getElementById('err-'+f).textContent='';document.getElementById('f-'+f).classList.remove('error');});
+  const title=document.getElementById('f-title').value.trim();
+  const desc=document.getElementById('f-desc').value.trim();
+  const cat=document.getElementById('f-cat').value;
+  const author=document.getElementById('f-author').value.trim()||window.__currentUser?.displayName||'Anonymous';
+  const country=document.getElementById('f-country').value.trim();
+  let valid=true;
+  if(!title){document.getElementById('err-title').textContent='Title is required.';document.getElementById('f-title').classList.add('error');valid=false;}
+  if(!desc||desc.length<20){document.getElementById('err-desc').textContent='Add more detail (min 20 chars).';document.getElementById('f-desc').classList.add('error');valid=false;}
+  if(!cat){document.getElementById('err-cat').textContent='Please select a category.';document.getElementById('f-cat').classList.add('error');valid=false;}
+  if(!valid)return;
+  if(!window.__submitIdea){showToast('Please wait...','error');return;}
+  const btn=document.getElementById('submit-btn');
+  btn.disabled=true;btn.textContent='⏳ Submitting…';
+  const flagMap={'india':'🇮🇳','brazil':'🇧🇷','nigeria':'🇳🇬','usa':'🇺🇸','ghana':'🇬🇭','pakistan':'🇵🇰','kenya':'🇰🇪','bangladesh':'🇧🇩','indonesia':'🇮🇩','mexico':'🇲🇽','ethiopia':'🇪🇹','egypt':'🇪🇬','china':'🇨🇳','uk':'🇬🇧','germany':'🇩🇪','france':'🇫🇷','japan':'🇯🇵'};
+  const flag=country?(flagMap[country.toLowerCase()]||'🌍'):'🌍';
+  try{
+    await window.__submitIdea({title,desc,category:cat,author,country,flag});
+    ['f-title','f-desc','f-author','f-country'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-cat').value='';
-    setFilter('all');
-    state.sort='newest'; state.page=1; state.search='';
-    document.getElementById('search-input').value='';
-    document.getElementById('sort-sel').value='newest';
-    scrollToFeed();
-    showToast('🎉 Your idea is now live worldwide!','success');
-    // Notify admin
-    await notifyAdmin(ideaData);
-  } catch(e) { showToast('Error. Try again.','error'); }
-  btn.disabled = false; btn.innerHTML = '🚀 Submit Idea';
+    if(window.__currentUser) document.getElementById('f-author').value=window.__currentUser.displayName||'';
+    showTab('explore');
+    showToast('🎉 Your idea is live worldwide!','success');
+  }catch(e){showToast('Error. Try again.','error');}
+  btn.disabled=false;btn.textContent='🚀 Submit Idea';
 }
 
 // ══ MODAL ══
 function openModal(id){
-  const idea = (window.__ideas||[]).find(i=>i.id===id);
-  if(!idea) return;
-  state.modalId = id;
-  const cm = CAT_META[idea.category]||CAT_META.social;
-  const av = getAC(idea.author||'?');
-  document.getElementById('m-tags').innerHTML=`<span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span>`;
-  document.getElementById('m-title').textContent = idea.title||'';
-  document.getElementById('m-desc').textContent = idea.desc||'';
-  document.getElementById('m-votes').textContent = idea.votes||0;
-  document.getElementById('m-cmts').textContent = (idea.comments||[]).length;
-  document.getElementById('m-reach').textContent = idea.reach||1;
-
-  const authorEl = document.getElementById('m-avatar');
-  if(idea.authorPhoto){
-    authorEl.outerHTML = `<img id="m-avatar" src="${idea.authorPhoto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;" alt="">`;
-  } else {
-    authorEl.style.background = av;
-    authorEl.textContent = ini(idea.author||'?');
-  }
-
-  document.getElementById('m-author-name').textContent = idea.author||'Anonymous';
-  document.getElementById('m-author-sub').textContent = `${idea.flag||'🌍'} ${idea.country||'World'} · ${timeAgo(idea.ts)}`;
-  document.getElementById('cmt-input').value = '';
-
-  const voted = state.votedIds.has(id);
-  const btn = document.getElementById('m-vote-btn');
-  btn.classList.toggle('voted-m', voted);
-  btn.textContent = voted ? '✓ Voted' : '▲ Upvote';
-
-  // WhatsApp link
-  const waMsg = encodeURIComponent(`💡 *${idea.title}*\n\n${idea.desc}\n\n🌍 Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
-  document.getElementById('m-wa-btn').href = `https://wa.me/?text=${waMsg}`;
-
+  const idea=(window.__ideas||[]).find(i=>i.id===id);
+  if(!idea)return;
+  state.modalId=id;
+  const cm=CAT_META[idea.category]||CAT_META.social;
+  const av=getAC(idea.author||'?');
+  const status=idea.status||'Under Review';
+  const score=(idea.votes||0)-(idea.downvotes||0);
+  document.getElementById('m-tags').innerHTML=`<span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span><span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span>`;
+  document.getElementById('m-title').textContent=idea.title||'';
+  document.getElementById('m-desc').textContent=idea.desc||'';
+  document.getElementById('m-votes').textContent=idea.votes||0;
+  document.getElementById('m-cmts').textContent=(idea.comments||[]).length;
+  document.getElementById('m-score').textContent=(score>0?'+':'')+score;
+  const avEl=document.getElementById('m-avatar');
+  avEl.style.background=av; avEl.textContent=ini(idea.author||'?');
+  document.getElementById('m-author-name').textContent=idea.author||'Anonymous';
+  document.getElementById('m-author-sub').textContent=`${idea.flag||'🌍'} ${idea.country||'World'} · ${timeAgo(idea.ts)} ago`;
+  document.getElementById('cmt-input').value='';
+  // Vote buttons
+  const votedU=state.votedUp.has(id);
+  const votedD=state.votedDn.has(id);
+  const mvb=document.getElementById('m-vote-btn');
+  mvb.classList.toggle('voted-m',votedU);
+  mvb.textContent=votedU?'✓ Upvoted':'▲ Upvote';
+  const mdb=document.getElementById('m-dn-btn');
+  mdb.classList.toggle('downed-m',votedD);
+  mdb.textContent=votedD?'✓ Downvoted':'▼ Downvote';
+  // Status selector for owner
+  const ss=document.getElementById('status-selector');
+  const cue=window.__currentUser?.email;
+  if(cue && idea.ownerEmail===cue){
+    ss.style.display='block';
+    document.getElementById('status-sel').value=status;
+  } else { ss.style.display='none'; }
   renderComments(idea);
   document.getElementById('overlay').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.body.style.overflow='hidden';
 }
 
-function closeModal(){ document.getElementById('overlay').classList.remove('open'); document.body.style.overflow=''; state.modalId=null; }
-function overlayClick(e){ if(e.target===document.getElementById('overlay')) closeModal(); }
-function voteFromModal(){ if(state.modalId) toggleVote(state.modalId); }
+function closeModal(){document.getElementById('overlay').classList.remove('open');document.body.style.overflow='';state.modalId=null;}
+function overlayClick(e){if(e.target===document.getElementById('overlay'))closeModal();}
 
-function renderComments(idea){
-  const list = document.getElementById('cmt-list');
-  const title = document.getElementById('cmts-title');
-  const cmts = idea.comments||[];
-  title.textContent = `Comments (${cmts.length})`;
-  if(!cmts.length){ list.innerHTML='<div style="font-size:0.78rem;color:var(--muted);padding:0.4rem 0">No comments yet. Be the first!</div>'; return; }
-  list.innerHTML = [...cmts].reverse().map(c=>`
-    <div class="comment-item">
-      <div class="comment-meta">
-        ${c.photo?`<img class="comment-author-img" src="${c.photo}" alt="">`:''}
-        <strong>${esc(c.name||'Anonymous')}</strong> · ${timeAgo(c.ts)}
-      </div>
-      <div class="comment-text">${esc(c.text)}</div>
-    </div>`).join('');
+function voteFromModal(field){
+  if(!state.modalId)return;
+  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
+  if(idea) toggleVote(state.modalId,field,idea.title,idea.ownerEmail||'',idea.ownerName||idea.author||'');
 }
 
-async function addComment(){
-  const inp = document.getElementById('cmt-input');
-  const text = inp.value.trim();
-  if(!text){ showToast('Please write a comment first.','error'); return; }
-  if(!state.modalId||!window.__addComment) return;
-  const user = window.__currentUser;
-  const name = user?.displayName || document.getElementById('f-author').value.trim() || 'Anonymous';
-  const photo = user?.photoURL || '';
-  try {
-    await window.__addComment(state.modalId, { name, text, photo, ts: Date.now() });
-    inp.value = '';
-    const idea = (window.__ideas||[]).find(i=>i.id===state.modalId);
-    if(idea) renderComments(idea);
-    showToast('💬 Comment posted!','success');
-    // Notify idea author
-    if(idea && idea.authorEmail) await sendNotification('comment', idea, name);
-  } catch(e) { showToast('Error.','error'); }
+async function updateIdeaStatus(){
+  if(!state.modalId||!window.__updateStatus)return;
+  const newStatus=document.getElementById('status-sel').value;
+  try{
+    await window.__updateStatus(state.modalId,newStatus);
+    showToast(`Status updated: ${newStatus}!`,'success');
+  }catch(e){showToast('Error updating status.','error');}
 }
 
-// ══ WHATSAPP ══
-function shareWebsite(){
-  const msg = encodeURIComponent('🌍 Share your ideas to change the world!\n\nJoin IdeaSphere — a global community ideas platform:\nhttps://ideasphere-debug.github.io/ideasphere\n\nVote, comment, and share ideas that matter! 🚀');
+function shareIdeaWA(){
+  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
+  if(!idea)return;
+  const msg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,150)}...\n\n🌍 Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
   window.open(`https://wa.me/?text=${msg}`,'_blank');
 }
 
-// ══ HINDI TOGGLE ══
-function toggleLang(){
-  lang = lang==='en'?'hi':'en';
-  localStorage.setItem('is_lang',lang);
-  document.getElementById('lang-toggle').textContent = lang==='en'?'🇮🇳 हिंदी':'🇬🇧 English';
-  showToast(lang==='hi'?'Hindi mode on! 🇮🇳':'English mode on! 🇬🇧','success');
+function shareWebsite(){
+  const msg=encodeURIComponent('🌍 IdeaSphere — Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
+  window.open(`https://wa.me/?text=${msg}`,'_blank');
 }
 
-// ══ TOAST ══
-let toastTimer;
-function showToast(msg,type=''){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(type?' '+type:''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.className='toast';},3000); }
-function showAbout(){ showToast('IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action..','success'); }
-function scrollToFeed(){ document.getElementById('feed-col').scrollIntoView({behavior:'smooth',block:'start'}); }
-function scrollToForm(){ document.getElementById('form-card').scrollIntoView({behavior:'smooth',block:'start'}); document.getElementById('f-title').focus(); }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+function renderComments(idea){
+  const list=document.getElementById('cmt-list');
+  const title=document.getElementById('cmts-title');
+  const cmts=idea.comments||[];
+  title.textContent=`Comments (${cmts.length})`;
+  if(!cmts.length){list.innerHTML='<div style="font-size:0.75rem;color:var(--muted);padding:0.4rem 0">No comments yet!</div>';return;}
+  list.innerHTML=[...cmts].reverse().map(c=>`<div class="comment-item"><div class="comment-meta">${esc(c.name||'Anonymous')} · ${timeAgo(c.ts)}</div><div class="comment-text">${esc(c.text)}</div></div>`).join('');
+}
 
-// Init
+async function addComment(){
+  const inp=document.getElementById('cmt-input');
+  const text=inp.value.trim();
+  if(!text||!state.modalId||!window.__addComment)return;
+  const name=window.__currentUser?.displayName||document.getElementById('f-author').value.trim()||'Anonymous';
+  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
+  try{
+    await window.__addComment(state.modalId,{name,text,ts:Date.now()});
+    if(idea?.ownerEmail && window.__sendNotif) window.__sendNotif(idea.ownerEmail,idea.title,name,'comment');
+    inp.value='';
+    const updated=(window.__ideas||[]).find(i=>i.id===state.modalId);
+    if(updated)renderComments(updated);
+    showToast('💬 Comment posted!','success');
+  }catch(e){showToast('Error.','error');}
+}
+
+function loadMore(){state.page++;renderFeed();}
+
+let toastTimer;
+function showAbout(){ showToast('🌍 IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action.','success'); }
+function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='toast';},3000);}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
 renderSidebar();
 </script>
 </body>
