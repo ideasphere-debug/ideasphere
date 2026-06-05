@@ -1,0 +1,28 @@
+{
+  "name": "IdeaSphere — Global Community Ideas",
+  "short_name": "IdeaSphere",
+  "description": "A global platform for community science students to share world-changing ideas",
+  "start_url": "/ideasphere/",
+  "scope": "/ideasphere/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#16a34a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192/16a34a/ffffff?text=IS",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/16a34a/ffffff?text=IS",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "social", "productivity"],
+  "lang": "en",
+  "dir": "ltr"
+}
