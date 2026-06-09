@@ -1,9 +1,15 @@
+cat > /home/claude/index_perfect.html << 'ENDOFFILE'
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IdeaSphere — Global Community Ideas Platform</title>
+<meta name="description" content="Share your ideas with the world! IdeaSphere is a free platform where students and citizens from 87+ countries vote and grow ideas that make our world better."/>
+<meta property="og:title" content="IdeaSphere — Global Community Ideas Platform"/>
+<meta property="og:description" content="Join 87+ countries sharing world-changing ideas. Free forever!"/>
+<meta property="og:url" content="https://ideasphere-debug.github.io/ideasphere/"/>
+<meta property="og:type" content="website"/>
 <meta name="google-site-verification" content="5zttx5DSrOtcwkjMOY8w1NQTLtyaaYLFzSG-WnV1S5U" />
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-QHNHW4C04L"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-QHNHW4C04L');</script>
@@ -26,13 +32,12 @@
   const provider = new GoogleAuthProvider();
   window.__db = db;
   window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
-  getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! ??`,'success'); }).catch(()=>{});
+  getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! 🎉`,'success'); }).catch(()=>{});
   onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
   window.__loginGoogle = async () => {
-    // Simple local login - no Google OAuth needed
-    const name = prompt('Enter your name to join IdeaSphere:');
-    if(!name || !name.trim()) return;
-    const email = prompt('Enter your email (for notifications):') || '';
+    if(!window.showJoinModal){ setTimeout(()=>window.__loginGoogle(),300); return; }
+    const { name, email } = await window.showJoinModal();
+    if(!name) return;
     const fakeUser = {
       displayName: name.trim(),
       email: email.trim(),
@@ -42,14 +47,13 @@
     localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
     window.__currentUser = fakeUser;
     if(window.updateAuthUI) window.updateAuthUI(fakeUser);
-    if(window.showToast) window.showToast(`Welcome, ${name.trim()}! ??`, 'success');
+    if(window.showToast) window.showToast('Welcome, '+fakeUser.displayName+'! 🎉', 'success');
   };
   window.__logout = async () => {
     localStorage.removeItem('is_local_user');
     window.__currentUser = null;
     if(window.updateAuthUI) window.updateAuthUI(null);
   };
-  // Restore local user on page load
   const savedUser = localStorage.getItem('is_local_user');
   if(savedUser) {
     try {
@@ -60,7 +64,7 @@
   window.__logout_firebase = async () => { try { await signOut(auth); } catch(e) {} };
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
   onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
-  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); return r.id; };
+  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); if(window.sendIdeaNotification) window.sendIdeaNotification(idea.title,window.__currentUser?.displayName||idea.author,window.__currentUser?.email||''); return r.id; };
   window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
   window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
   window.__updateStatus = async (id,status) => { await updateDoc(doc(db,"ideas",id),{status}); };
@@ -82,8 +86,6 @@
 }
 html{scroll-behavior:smooth}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:70px}
-
-/* NAV */
 .nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;}
 .logo{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:7px;text-decoration:none;}
 .logo-dot{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#4ade80);display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;}
@@ -94,8 +96,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .user-nav-name{color:#fff;font-size:0.75rem;font-weight:500;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .logout-btn{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.15);padding:4px 8px;border-radius:12px;font-size:0.7rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
 .login-btn-nav{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:4px;}
-
-/* HERO */
 .hero{background:linear-gradient(135deg,#0f1117 0%,#1a1f2e 50%,#0f2a1a 100%);color:#fff;padding:3.5rem 1.25rem 2.5rem;text-align:center;position:relative;overflow:hidden;}
 .hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 20% 50%,rgba(34,197,94,0.12),transparent 60%),radial-gradient(ellipse 50% 60% at 80% 30%,rgba(37,99,235,0.1),transparent 60%);pointer-events:none;}
 .hero-inner{position:relative;max-width:680px;margin:0 auto}
@@ -107,31 +107,21 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .btn-hp{background:var(--green);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all 0.2s;}
 .btn-hp:hover{background:var(--green-l);transform:translateY(-1px)}
 .btn-hs{background:transparent;color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);padding:10px 22px;border-radius:8px;font-size:0.88rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-
-/* STATS */
 .stats-bar{background:var(--white);border-bottom:1px solid var(--border);display:flex;justify-content:center;flex-wrap:wrap;}
 .stat-item{padding:0.9rem 1.5rem;text-align:center;border-right:1px solid var(--border);}
 .stat-item:last-child{border-right:none}
 .stat-n{font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;color:var(--green);line-height:1}
 .stat-l{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
-
-/* BOTTOM NAV (Mobile App Feel) */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;z-index:40;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
 .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;color:var(--muted);font-size:0.6rem;font-weight:500;gap:3px;transition:color 0.2s;}
 .bn-item.active{color:var(--green)}
 .bn-icon{font-size:1.15rem}
 .bn-item.active .bn-icon{transform:scale(1.1)}
-
-/* PAGE TABS */
 .page-tab{display:none}
 .page-tab.active{display:block}
-
-/* LAYOUT */
 .page{max-width:1160px;margin:0 auto;padding:1.5rem 1rem}
 .layout{display:grid;grid-template-columns:1fr 290px;gap:1.5rem;align-items:start}
 @media(max-width:860px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
-
-/* ADVANCED SEARCH */
 .search-panel{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow);}
 .search-panel-title{font-family:'Fraunces',serif;font-size:0.95rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
 .search-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;}
@@ -141,22 +131,16 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .search-full{grid-column:1/-1}
 .search-btn{background:var(--green);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;}
 .clear-btn{background:var(--cream);color:var(--muted);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;cursor:pointer;}
-
-/* FEED */
 .feed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem}
 .feed-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600}
 .feed-count{font-size:0.78rem;color:var(--muted);background:var(--cream);padding:3px 10px;border-radius:12px;}
 .sort-sel{padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;background:var(--white);color:var(--ink);outline:none;cursor:pointer;}
 .ideas-feed{display:flex;flex-direction:column;gap:0.85rem}
-
-/* STATUS BADGES */
 .status-badge{display:inline-flex;align-items:center;gap:4px;font-size:0.67rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;}
 .status-review{background:#fef3c7;color:#92400e;}
 .status-approved{background:#dbeafe;color:#1d4ed8;}
 .status-implemented{background:#dcfce7;color:#15803d;}
 .status-rejected{background:#fee2e2;color:#991b1b;}
-
-/* CARDS */
 .idea-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.1rem 1.2rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;position:relative;}
 .idea-card:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--border2)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -182,17 +166,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .card-meta{display:flex;gap:0.6rem}
 .meta-chip{font-size:0.68rem;color:var(--muted)}
 .wa-btn{background:#25D366;color:#fff;border:none;padding:4px 9px;border-radius:5px;font-size:0.68rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:3px;text-decoration:none;}
-
 .empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
 .empty-icon{font-size:2rem;margin-bottom:0.5rem}
 .load-more-btn{width:100%;margin-top:0.85rem;padding:9px;background:var(--white);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:500;color:var(--muted);cursor:pointer;}
-
-/* SIDEBAR */
 .sidebar{display:flex;flex-direction:column;gap:0.9rem}
 .s-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow)}
 .s-title{font-family:'Fraunces',serif;font-size:0.88rem;font-weight:600;margin-bottom:0.8rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;}
-
-/* LOGIN CARD */
 .google-login-btn{background:#fff;color:#333;border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
 .google-login-btn:hover{background:var(--cream)}
 .login-sub{font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;text-align:center;}
@@ -201,8 +180,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .user-profile-name{font-size:0.85rem;font-weight:600}
 .user-profile-email{font-size:0.68rem;color:var(--muted)}
 .logout-link{font-size:0.72rem;color:var(--red);cursor:pointer;text-decoration:underline;margin-top:0.4rem;display:inline-block;}
-
-/* FORM */
 .form{display:flex;flex-direction:column;gap:0.6rem}
 .f-label{font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:1px;display:block}
 .f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
@@ -214,23 +191,17 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .submit-btn:disabled{opacity:0.6;cursor:not-allowed}
 .form-error{font-size:0.68rem;color:var(--red)}
 .wa-sidebar-btn{background:#25D366;color:#fff;border:none;padding:8px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:5px;margin-top:0.4rem;text-decoration:none;}
-
-/* TREND */
 .trend-list{display:flex;flex-direction:column;gap:0.35rem}
 .trend-item{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer;}
 .trend-item:last-child{border-bottom:none}
 .trend-item:hover .trend-name{color:var(--green)}
 .trend-name{font-size:0.8rem;color:var(--ink)}
 .trend-count{background:var(--green-bg);color:var(--green);font-size:0.67rem;font-weight:700;padding:2px 6px;border-radius:9px}
-
-/* COUNTRIES */
 .country-list{display:flex;flex-direction:column;gap:0.45rem}
 .country-row{display:flex;align-items:center;gap:6px}
 .c-flag{font-size:0.9rem;flex-shrink:0}.c-name{font-size:0.74rem;flex:0 0 60px}
 .c-bar-bg{flex:1;height:4px;background:var(--green-bg);border-radius:3px;overflow:hidden}
 .c-bar{height:100%;background:var(--green-l);border-radius:3px}
-
-/* LEADERBOARD TAB */
 .lb-section{margin-bottom:1.5rem}
 .lb-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:7px;}
 .lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
@@ -239,15 +210,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .lb-item{display:flex;align-items:center;gap:10px;padding:0.65rem 0;border-bottom:1px solid var(--border);}
 .lb-item:last-child{border-bottom:none}
 .lb-rank{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;width:28px;text-align:center;flex-shrink:0;}
-.lb-rank.gold{color:#f59e0b}
-.lb-rank.silver{color:#9ca3af}
-.lb-rank.bronze{color:#cd7c3a}
+.lb-rank.gold{color:#f59e0b}.lb-rank.silver{color:#9ca3af}.lb-rank.bronze{color:#cd7c3a}
 .lb-info{flex:1;min-width:0}
 .lb-name{font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lb-sub{font-size:0.7rem;color:var(--muted)}
 .lb-score{font-family:'Fraunces',serif;font-size:1rem;font-weight:700;color:var(--green);flex-shrink:0;}
-
-/* MODAL */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px);}
 .overlay.open{display:flex;animation:fadeIn 0.2s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -273,14 +240,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .m-dn-btn{background:var(--white) !important}
 .m-dn-btn.downed-m{background:var(--red-bg) !important;color:var(--red) !important;border-color:var(--red) !important}
 .m-wa-btn{background:#25D366 !important;color:#fff !important;border-color:#25D366 !important}
-
-/* STATUS SELECTOR IN MODAL */
 .status-selector{margin-bottom:0.9rem;padding:0.75rem;background:var(--cream);border-radius:9px;}
 .status-sel-label{font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px;display:block;}
 .status-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--white);outline:none;cursor:pointer;}
 .admin-note{font-size:0.68rem;color:var(--muted);margin-top:4px;}
-
-/* COMMENTS */
 .comments-section{padding-top:0.9rem;border-top:1px solid var(--border)}
 .comments-title{font-size:0.8rem;font-weight:700;margin-bottom:0.6rem}
 .comment-box{display:flex;gap:6px;margin-bottom:0.6rem}
@@ -291,72 +254,60 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .comment-item{background:var(--cream);border-radius:7px;padding:0.55rem 0.7rem}
 .comment-meta{font-size:0.67rem;color:var(--muted);margin-bottom:2px}
 .comment-text{font-size:0.78rem;color:var(--ink2)}
-
-/* TOAST */
 .toast{position:fixed;bottom:80px;right:1rem;z-index:200;background:var(--ink);color:#fff;padding:0.7rem 1rem;border-radius:9px;font-size:0.82rem;font-weight:500;transform:translateY(60px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:260px;box-shadow:var(--shadow2);}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{background:var(--green)}.toast.error{background:var(--red)}
-
 footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.1rem;font-size:0.75rem;}
 footer span{color:#4ade80}
-/* CUSTOM MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
-.modal-overlay.show{opacity:1;pointer-events:all;}
-.modal-box{background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;transform:translateY(24px);transition:transform 0.25s;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
-.modal-overlay.show .modal-box{transform:translateY(0);}
-.modal-logo{font-size:36px;text-align:center;margin-bottom:8px;}
-.modal-title{font-size:20px;font-weight:700;color:#fff;text-align:center;margin-bottom:4px;}
-.modal-sub{font-size:13px;color:rgba(255,255,255,0.55);text-align:center;margin-bottom:22px;line-height:1.5;}
-.modal-label{font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:block;font-weight:500;}
-.modal-input{width:100%;padding:12px 14px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.07);color:#fff;font-size:15px;outline:none;margin-bottom:14px;box-sizing:border-box;transition:border-color 0.2s;}
-.modal-input:focus{border-color:#4f7c3f;background:rgba(255,255,255,0.1);}
-.modal-input::placeholder{color:rgba(255,255,255,0.3);}
-.modal-input.error{border-color:#e74c3c;}
-.modal-btn{width:100%;padding:13px;border-radius:9px;border:none;background:linear-gradient(135deg,#4f7c3f,#2d4a22);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.2s;letter-spacing:0.3px;}
-.modal-btn:hover{opacity:0.88;}
-.modal-skip{width:100%;padding:9px;border-radius:9px;border:none;background:transparent;color:rgba(255,255,255,0.38);font-size:13px;cursor:pointer;margin-top:8px;transition:color 0.2s;}
-.modal-skip:hover{color:rgba(255,255,255,0.65);}
-.is-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,0.35);max-width:90vw;text-align:center;}
-.is-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+/* JOIN MODAL */
+.join-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.join-overlay.show{opacity:1;pointer-events:all;}
+.join-box{background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;transform:translateY(24px);transition:transform 0.25s;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+.join-overlay.show .join-box{transform:translateY(0);}
+.join-title{font-size:20px;font-weight:700;color:#fff;text-align:center;margin-bottom:4px;}
+.join-sub{font-size:13px;color:rgba(255,255,255,0.55);text-align:center;margin-bottom:22px;}
+.join-label{font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:block;font-weight:500;}
+.join-input{width:100%;padding:12px 14px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.07);color:#fff;font-size:15px;outline:none;margin-bottom:14px;box-sizing:border-box;transition:border-color 0.2s;}
+.join-input:focus{border-color:#4f7c3f;background:rgba(255,255,255,0.1);}
+.join-input::placeholder{color:rgba(255,255,255,0.3);}
+.join-input.error{border-color:#e74c3c;}
+.join-btn{width:100%;padding:13px;border-radius:9px;border:none;background:linear-gradient(135deg,#4f7c3f,#2d4a22);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.2s;}
+.join-btn:hover{opacity:0.88;}
+.join-skip{width:100%;padding:9px;border-radius:9px;border:none;background:transparent;color:rgba(255,255,255,0.38);font-size:13px;cursor:pointer;margin-top:8px;}
+.join-skip:hover{color:rgba(255,255,255,0.65);}
+.notif-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;max-width:90vw;text-align:center;}
+.notif-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
-<meta name="description" content="Share your ideas with the world! IdeaSphere is a free platform where students and citizens from 87+ countries vote and grow ideas that make our world better."/>
-<meta property="og:title" content="IdeaSphere — Global Community Ideas Platform"/>
-<meta property="og:description" content="Join 87+ countries sharing world-changing ideas. Free forever!"/>
-<meta property="og:url" content="https://ideasphere-debug.github.io/ideasphere/"/>
-<meta property="og:type" content="website"/>
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="nav">
   <a class="logo" href="#" onclick="return false">
-    <div class="logo-dot">??</div>IdeaSphere
+    <div class="logo-dot">🌍</div>IdeaSphere
   </a>
   <div class="nav-right">
     <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
     <div id="auth-nav">
       <button class="login-btn-nav" onclick="loginGoogle()">
-        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Login
+        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
       </button>
     </div>
     <button class="nav-btn" onclick="showTab('submit');scrollToTop()">+ Idea</button>
   </div>
 </nav>
 
-<!-- HERO -->
 <section class="hero">
   <div class="hero-inner">
-    <div class="hero-pill">?? Open Platform · 87 Countries · Free Forever</div>
+    <div class="hero-pill">🌱 Open Platform · 87 Countries · Free Forever</div>
     <h1>Where <em>Community</em><br>Ideas Change the World</h1>
     <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
     <div class="hero-cta">
       <button class="btn-hp" onclick="showTab('submit')">Share Your Idea</button>
-      <button class="btn-hs" onclick="showTab('explore')">Explore Ideas ?</button>
+      <button class="btn-hs" onclick="showTab('explore')">Explore Ideas ↓</button>
     </div>
   </div>
 </section>
 
-<!-- STATS -->
 <div class="stats-bar">
   <div class="stat-item"><div class="stat-n" id="stat-total">...</div><div class="stat-l">Ideas</div></div>
   <div class="stat-item"><div class="stat-n">87</div><div class="stat-l">Countries</div></div>
@@ -364,26 +315,22 @@ footer span{color:#4ade80}
   <div class="stat-item"><div class="stat-n">34</div><div class="stat-l">Implemented</div></div>
 </div>
 
-<!-- MAIN PAGE -->
 <div class="page">
-
-  <!-- EXPLORE TAB -->
   <div class="page-tab active" id="tab-explore">
     <div class="layout">
       <div>
-        <!-- ADVANCED SEARCH -->
         <div class="search-panel">
-          <div class="search-panel-title">?? Advanced Search</div>
+          <div class="search-panel-title">🔍 Advanced Search</div>
           <div class="search-grid">
             <input class="s-inp search-full" id="s-keyword" placeholder="Keywords, title, description…" oninput="doSearch()">
             <select class="s-sel" id="s-cat" onchange="doSearch()">
               <option value="">All Categories</option>
-              <option value="environment">?? Environment</option>
-              <option value="education">?? Education</option>
-              <option value="health">?? Health</option>
-              <option value="tech">?? Technology</option>
-              <option value="social">?? Social</option>
-              <option value="food">?? Food & Agriculture</option>
+              <option value="environment">🌿 Environment</option>
+              <option value="education">📚 Education</option>
+              <option value="health">❤️ Health</option>
+              <option value="tech">💻 Technology</option>
+              <option value="social">🤝 Social</option>
+              <option value="food">🌾 Food & Agriculture</option>
             </select>
             <input class="s-inp" id="s-country" placeholder="Country…" oninput="doSearch()">
             <select class="s-sel" id="s-status" onchange="doSearch()">
@@ -404,19 +351,16 @@ footer span{color:#4ade80}
             </div>
           </div>
         </div>
-
         <div class="feed-head">
           <div class="feed-title">Community Ideas</div>
           <div class="feed-count" id="feed-count"></div>
         </div>
-        <div class="ideas-feed" id="ideas-feed"><div class="empty"><div class="empty-icon">?</div><p>Loading ideas...</p></div></div>
-        <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMore()">Load more ?</button>
+        <div class="ideas-feed" id="ideas-feed"><div class="empty"><div class="empty-icon">⏳</div><p>Loading ideas...</p></div></div>
+        <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMore()">Load more ↓</button>
       </div>
-
       <div class="sidebar">
-        <!-- User Login -->
         <div class="s-card">
-          <div class="s-title">?? Account</div>
+          <div class="s-title">👤 Account</div>
           <div id="login-card-content">
             <p class="login-sub">Login to submit ideas & get notifications!</p>
             <button class="google-login-btn" onclick="loginGoogle()">
@@ -424,26 +368,23 @@ footer span{color:#4ade80}
             </button>
           </div>
         </div>
-        <!-- Trending -->
         <div class="s-card">
-          <div class="s-title">?? Trending Topics</div>
+          <div class="s-title">🔥 Trending Topics</div>
           <div class="trend-list" id="trend-list"></div>
         </div>
-        <!-- Countries -->
         <div class="s-card">
-          <div class="s-title">?? Top Countries</div>
+          <div class="s-title">🌐 Top Countries</div>
           <div class="country-list" id="country-list"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- SUBMIT TAB -->
   <div class="page-tab" id="tab-submit">
     <div style="max-width:600px;margin:0 auto;">
       <div class="s-card">
-        <div class="s-title" style="font-size:1.1rem;padding-bottom:0.75rem;margin-bottom:1rem;">?? Share Your Idea with the World</div>
-        <div id="notif-info" style="background:var(--green-bg);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:var(--green);margin-bottom:1rem;display:none;">?? You'll get email notifications when people interact with your idea!</div>
+        <div class="s-title" style="font-size:1.1rem;padding-bottom:0.75rem;margin-bottom:1rem;">💡 Share Your Idea with the World</div>
+        <div id="notif-info" style="background:var(--green-bg);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:var(--green);margin-bottom:1rem;display:none;">🔔 You'll get email notifications when people interact with your idea!</div>
         <div class="form">
           <div>
             <label class="f-label">Idea Title *</label>
@@ -461,12 +402,12 @@ footer span{color:#4ade80}
             <label class="f-label">Category *</label>
             <select class="f-sel" id="f-cat">
               <option value="">Choose a category…</option>
-              <option value="environment">?? Environment</option>
-              <option value="education">?? Education</option>
-              <option value="health">?? Health</option>
-              <option value="tech">?? Technology</option>
-              <option value="social">?? Social</option>
-              <option value="food">?? Food & Agriculture</option>
+              <option value="environment">🌿 Environment</option>
+              <option value="education">📚 Education</option>
+              <option value="health">❤️ Health</option>
+              <option value="tech">💻 Technology</option>
+              <option value="social">🤝 Social</option>
+              <option value="food">🌾 Food & Agriculture</option>
             </select>
             <div class="form-error" id="err-cat"></div>
           </div>
@@ -478,70 +419,68 @@ footer span{color:#4ade80}
             <div>
               <label class="f-label">Country</label>
               <select class="f-inp" id="f-country" style="cursor:pointer;">
-<option value="">?? Select Country...</option>
-<option value="Afghanistan">???? Afghanistan</option>
-<option value="Argentina">???? Argentina</option>
-<option value="Australia">???? Australia</option>
-<option value="Bangladesh">???? Bangladesh</option>
-<option value="Brazil">???? Brazil</option>
-<option value="Canada">???? Canada</option>
-<option value="China">???? China</option>
-<option value="Egypt">???? Egypt</option>
-<option value="France">???? France</option>
-<option value="Germany">???? Germany</option>
-<option value="Ghana">???? Ghana</option>
-<option value="India">???? India</option>
-<option value="Indonesia">???? Indonesia</option>
-<option value="Italy">???? Italy</option>
-<option value="Japan">???? Japan</option>
-<option value="Kenya">???? Kenya</option>
-<option value="Malaysia">???? Malaysia</option>
-<option value="Mexico">???? Mexico</option>
-<option value="Morocco">???? Morocco</option>
-<option value="Nepal">???? Nepal</option>
-<option value="Nigeria">???? Nigeria</option>
-<option value="Pakistan">???? Pakistan</option>
-<option value="Philippines">???? Philippines</option>
-<option value="Russia">???? Russia</option>
-<option value="Saudi Arabia">???? Saudi Arabia</option>
-<option value="South Africa">???? South Africa</option>
-<option value="South Korea">???? South Korea</option>
-<option value="Spain">???? Spain</option>
-<option value="Sri Lanka">???? Sri Lanka</option>
-<option value="Turkey">???? Turkey</option>
-<option value="Ukraine">???? Ukraine</option>
-<option value="United Arab Emirates">???? United Arab Emirates</option>
-<option value="United Kingdom">???? United Kingdom</option>
-<option value="United States">???? United States</option>
-<option value="Vietnam">???? Vietnam</option>
-<option value="Other">?? Other</option>
-</select>
+                <option value="">🌍 Select Country...</option>
+                <option value="Afghanistan">🇦🇫 Afghanistan</option>
+                <option value="Argentina">🇦🇷 Argentina</option>
+                <option value="Australia">🇦🇺 Australia</option>
+                <option value="Bangladesh">🇧🇩 Bangladesh</option>
+                <option value="Brazil">🇧🇷 Brazil</option>
+                <option value="Canada">🇨🇦 Canada</option>
+                <option value="China">🇨🇳 China</option>
+                <option value="Egypt">🇪🇬 Egypt</option>
+                <option value="France">🇫🇷 France</option>
+                <option value="Germany">🇩🇪 Germany</option>
+                <option value="Ghana">🇬🇭 Ghana</option>
+                <option value="India">🇮🇳 India</option>
+                <option value="Indonesia">🇮🇩 Indonesia</option>
+                <option value="Italy">🇮🇹 Italy</option>
+                <option value="Japan">🇯🇵 Japan</option>
+                <option value="Kenya">🇰🇪 Kenya</option>
+                <option value="Malaysia">🇲🇾 Malaysia</option>
+                <option value="Mexico">🇲🇽 Mexico</option>
+                <option value="Morocco">🇲🇦 Morocco</option>
+                <option value="Nepal">🇳🇵 Nepal</option>
+                <option value="Nigeria">🇳🇬 Nigeria</option>
+                <option value="Pakistan">🇵🇰 Pakistan</option>
+                <option value="Philippines">🇵🇭 Philippines</option>
+                <option value="Russia">🇷🇺 Russia</option>
+                <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
+                <option value="South Africa">🇿🇦 South Africa</option>
+                <option value="South Korea">🇰🇷 South Korea</option>
+                <option value="Spain">🇪🇸 Spain</option>
+                <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
+                <option value="Turkey">🇹🇷 Turkey</option>
+                <option value="Ukraine">🇺🇦 Ukraine</option>
+                <option value="United Arab Emirates">🇦🇪 United Arab Emirates</option>
+                <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                <option value="United States">🇺🇸 United States</option>
+                <option value="Vietnam">🇻🇳 Vietnam</option>
+                <option value="Other">🌍 Other</option>
+              </select>
             </div>
           </div>
-          <button class="submit-btn" type="button" onclick="submitIdea()" id="submit-btn">?? Submit Idea</button>
-          <a class="wa-sidebar-btn" href="#" onclick="shareWebsite();return false;">?? Share IdeaSphere on WhatsApp</a>
+          <button class="submit-btn" type="button" onclick="submitIdea()" id="submit-btn">🚀 Submit Idea</button>
+          <a class="wa-sidebar-btn" href="#" onclick="shareWebsite();return false;">📲 Share IdeaSphere on WhatsApp</a>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- LEADERBOARD TAB -->
   <div class="page-tab" id="tab-leaderboard">
     <div class="lb-section">
-      <div class="lb-title">?? Top Ideas</div>
+      <div class="lb-title">🏆 Top Ideas</div>
       <div id="lb-ideas"></div>
     </div>
     <div class="lb-section">
-      <div class="lb-title">?? Top Contributors</div>
+      <div class="lb-title">🌟 Top Contributors</div>
       <div id="lb-contributors"></div>
     </div>
   </div>
 
-  <!-- PROFILE TAB -->
   <div class="page-tab" id="tab-profile">
     <div style="max-width:500px;margin:0 auto;">
       <div class="s-card" id="profile-content">
-        <div class="s-title">?? Your Profile</div>
+        <div class="s-title">👤 Your Profile</div>
         <div style="text-align:center;padding:1rem 0">
           <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile and ideas!</p>
           <button class="google-login-btn" onclick="loginGoogle()">
@@ -551,29 +490,26 @@ footer span{color:#4ade80}
       </div>
     </div>
   </div>
-
 </div>
 
-<!-- BOTTOM NAV -->
 <nav class="bottom-nav">
   <button class="bn-item active" id="bn-explore" onclick="showTab('explore')">
-    <span class="bn-icon">??</span>Explore
+    <span class="bn-icon">🔍</span>Explore
   </button>
   <button class="bn-item" id="bn-submit" onclick="showTab('submit')">
-    <span class="bn-icon">??</span>Share
+    <span class="bn-icon">💡</span>Share
   </button>
   <button class="bn-item" id="bn-leaderboard" onclick="showTab('leaderboard')">
-    <span class="bn-icon">??</span>Leaderboard
+    <span class="bn-icon">🏆</span>Leaderboard
   </button>
   <button class="bn-item" id="bn-profile" onclick="showTab('profile')">
-    <span class="bn-icon">??</span>Profile
+    <span class="bn-icon">👤</span>Profile
   </button>
 </nav>
 
-<!-- MODAL -->
 <div class="overlay" id="overlay" onclick="overlayClick(event)">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal()">?</button>
+    <button class="modal-close" onclick="closeModal()">✕</button>
     <div class="modal-hero">
       <div class="modal-tags" id="m-tags"></div>
       <div class="modal-title" id="m-title"></div>
@@ -592,21 +528,20 @@ footer span{color:#4ade80}
           <div class="modal-author-sub" id="m-author-sub"></div>
         </div>
       </div>
-      <!-- Status selector -->
       <div class="status-selector" id="status-selector" style="display:none">
-        <span class="status-sel-label">?? Update Status (Admin)</span>
+        <span class="status-sel-label">📊 Update Status (Admin)</span>
         <select class="status-sel" id="status-sel" onchange="updateIdeaStatus()">
-          <option value="Under Review">?? Under Review</option>
-          <option value="Approved">? Approved</option>
-          <option value="Implemented">?? Implemented</option>
-          <option value="Rejected">? Rejected</option>
+          <option value="Under Review">🔄 Under Review</option>
+          <option value="Approved">✅ Approved</option>
+          <option value="Implemented">🚀 Implemented</option>
+          <option value="Rejected">❌ Rejected</option>
         </select>
         <div class="admin-note">Only visible to idea owner</div>
       </div>
       <div class="modal-actions">
-        <button class="m-vote-btn" id="m-vote-btn" onclick="voteFromModal('votes')">? Upvote</button>
-        <button class="m-dn-btn" id="m-dn-btn" onclick="voteFromModal('downvotes')">? Downvote</button>
-        <a class="m-wa-btn" id="m-wa-btn" href="#" onclick="shareIdeaWA();return false;">?? Share</a>
+        <button class="m-vote-btn" id="m-vote-btn" onclick="voteFromModal('votes')">▲ Upvote</button>
+        <button class="m-dn-btn" id="m-dn-btn" onclick="voteFromModal('downvotes')">▼ Downvote</button>
+        <a class="m-wa-btn" id="m-wa-btn" href="#" onclick="shareIdeaWA();return false;">📲 Share</a>
         <button onclick="closeModal()">Close</button>
       </div>
       <div class="comments-section">
@@ -623,22 +558,42 @@ footer span{color:#4ade80}
 
 <div class="toast" id="toast"></div>
 
+<!-- JOIN MODAL -->
+<div class="join-overlay" id="join-modal">
+  <div class="join-box">
+    <div style="font-size:36px;text-align:center;margin-bottom:8px;">🌍</div>
+    <div class="join-title">Join IdeaSphere</div>
+    <div class="join-sub">Share ideas with 87+ countries &middot; Free Forever</div>
+    <label class="join-label">Your Name *</label>
+    <input class="join-input" id="join-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50" autocomplete="name"/>
+    <label class="join-label">Email <span style="color:rgba(255,255,255,0.35);font-weight:400;">(for notifications)</span></label>
+    <input class="join-input" id="join-email" type="email" placeholder="your@email.com" autocomplete="email"/>
+    <button class="join-btn" onclick="joinDone()">Join IdeaSphere &rarr;</button>
+    <button class="join-skip" onclick="joinSkip()">Skip for now</button>
+  </div>
+</div>
+<div class="notif-toast" id="notif-toast"></div>
+
 <footer>
-  <footer>Made with ? for the world · IdeaSphere © 2026 &nbsp;·&nbsp; <a href="./about.html" style="color:#4ade80;text-decoration:none;">About Us</a> &nbsp;·&nbsp; <a href="./privacy.html" style="color:#4ade80;text-decoration:none;">Privacy Policy</a> &nbsp;·&nbsp; <a href="./terms.html" style="color:#4ade80;text-decoration:none;">Terms of Use</a> &nbsp;·&nbsp; <a href="mailto:ideaspherecontact0@gmail.com" style="color:#4ade80;text-decoration:none;">Contact</a></footer>
+  Made with ♥ for the world &nbsp;·&nbsp; IdeaSphere &copy; 2026
+  &nbsp;·&nbsp; <a href="./about.html" style="color:#4ade80;text-decoration:none;">About Us</a>
+  &nbsp;·&nbsp; <a href="./privacy.html" style="color:#4ade80;text-decoration:none;">Privacy Policy</a>
+  &nbsp;·&nbsp; <a href="./terms.html" style="color:#4ade80;text-decoration:none;">Terms of Use</a>
+  &nbsp;·&nbsp; <a href="mailto:ideaspherecontact0@gmail.com" style="color:#4ade80;text-decoration:none;">Contact</a>
 </footer>
 
 <script>
 const CAT_META = {
-  environment:{ label:'Environment', emoji:'??', tagClass:'tag-env', color:'#16a34a', dotColor:'#22c55e' },
-  education:  { label:'Education',   emoji:'??', tagClass:'tag-edu', color:'#2563eb', dotColor:'#3b82f6' },
-  health:     { label:'Health',      emoji:'??',  tagClass:'tag-health',color:'#dc2626',dotColor:'#ef4444' },
-  tech:       { label:'Technology',  emoji:'??', tagClass:'tag-tech', color:'#d97706', dotColor:'#f59e0b' },
-  social:     { label:'Social',      emoji:'??', tagClass:'tag-social',color:'#7c3aed',dotColor:'#8b5cf6' },
-  food:       { label:'Food & Agri', emoji:'??', tagClass:'tag-food', color:'#0d9488', dotColor:'#14b8a6' },
+  environment:{ label:'Environment', emoji:'🌿', tagClass:'tag-env', color:'#16a34a', dotColor:'#22c55e' },
+  education:  { label:'Education',   emoji:'📚', tagClass:'tag-edu', color:'#2563eb', dotColor:'#3b82f6' },
+  health:     { label:'Health',      emoji:'❤️',  tagClass:'tag-health',color:'#dc2626',dotColor:'#ef4444' },
+  tech:       { label:'Technology',  emoji:'💻', tagClass:'tag-tech', color:'#d97706', dotColor:'#f59e0b' },
+  social:     { label:'Social',      emoji:'🤝', tagClass:'tag-social',color:'#7c3aed',dotColor:'#8b5cf6' },
+  food:       { label:'Food & Agri', emoji:'🌾', tagClass:'tag-food', color:'#0d9488', dotColor:'#14b8a6' },
 };
 const AV_COLORS=['#16a34a','#2563eb','#dc2626','#d97706','#7c3aed','#0d9488'];
 const STATUS_CLASS = {'Under Review':'status-review','Approved':'status-approved','Implemented':'status-implemented','Rejected':'status-rejected'};
-const STATUS_EMOJI = {'Under Review':'??','Approved':'?','Implemented':'??','Rejected':'?'};
+const STATUS_EMOJI = {'Under Review':'🔄','Approved':'✅','Implemented':'🚀','Rejected':'❌'};
 function getAC(n){let h=0;for(let c of n||'?')h=(h*31+c.charCodeAt(0))&0xffff;return AV_COLORS[h%AV_COLORS.length];}
 function ini(n){return(n||'?').split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase()||'??';}
 function timeAgo(ts){if(!ts)return'now';const s=Math.floor((Date.now()-(ts.seconds?ts.seconds*1000:ts))/1000);if(s<60)return'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}
@@ -652,7 +607,47 @@ let state = {
 };
 window.__ideas = [];
 
-// -- TABS --
+// JOIN MODAL
+let _joinResolve = null;
+window.showJoinModal = function(){
+  return new Promise(r => {
+    _joinResolve = r;
+    document.getElementById('join-modal').classList.add('show');
+    setTimeout(()=>{ const i=document.getElementById('join-name'); if(i)i.focus(); }, 280);
+  });
+};
+function joinDone(){
+  const n = document.getElementById('join-name');
+  const e = document.getElementById('join-email');
+  const name = n.value.trim();
+  const email = e.value.trim();
+  if(!name){ n.classList.add('error'); n.placeholder='Name required!'; n.focus(); return; }
+  n.classList.remove('error');
+  document.getElementById('join-modal').classList.remove('show');
+  if(_joinResolve) _joinResolve({name, email});
+}
+function joinSkip(){
+  document.getElementById('join-modal').classList.remove('show');
+  if(_joinResolve) _joinResolve({name:'Anonymous', email:''});
+}
+document.addEventListener('keydown', e => {
+  if(e.key==='Enter' && document.getElementById('join-modal').classList.contains('show')) joinDone();
+});
+
+// NOTIFICATION
+window.sendIdeaNotification = function(title, name, email){
+  const t = document.getElementById('notif-toast');
+  if(t){ t.textContent='🎉 Idea submitted! Live in 87 countries!'; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4000); }
+  if(!email || typeof emailjs==='undefined') return;
+  emailjs.send('service_tlgp8gj','template_maj591',{
+    to_name: name||'User', to_email: email,
+    idea_title: title||'Your Idea',
+    platform_name: 'IdeaSphere',
+    idea_url: 'https://ideasphere-debug.github.io/ideasphere',
+    from_name: 'IdeaSphere Team'
+  },'NX-Nh_CaDvJLi357V').catch(e=>console.warn('EmailJS:',e));
+};
+
 function showTab(tab) {
   state.currentTab = tab;
   document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
@@ -665,7 +660,6 @@ function showTab(tab) {
 }
 function scrollToTop(){ window.scrollTo({top:0,behavior:'smooth'}); }
 
-// -- AUTH UI --
 window.updateAuthUI = function(user) {
   const authNav = document.getElementById('auth-nav');
   const lcc = document.getElementById('login-card-content');
@@ -685,7 +679,6 @@ window.updateAuthUI = function(user) {
 async function loginGoogle(){ if(window.__loginGoogle) await window.__loginGoogle(); }
 async function logoutUser(){ if(window.__logout) await window.__logout(); showToast('Signed out.',''); }
 
-// -- SEARCH --
 function doSearch(){
   state.page=1;
   state.keyword = document.getElementById('s-keyword').value.toLowerCase();
@@ -703,7 +696,6 @@ function clearSearch(){
   state.page=1; renderFeed();
 }
 
-// -- FEED --
 function getFiltered(){
   let list=[...(window.__ideas||[])];
   if(state.catF) list=list.filter(i=>i.category===state.catF);
@@ -718,13 +710,7 @@ function getFiltered(){
   return list;
 }
 
-window.renderAll = function(){
-  renderFeed();
-  renderSidebar();
-  updateStats();
-  if(state.currentTab==='leaderboard') renderLeaderboard();
-  if(state.currentTab==='profile') renderProfile();
-}
+window.renderAll = function(){ renderFeed(); renderSidebar(); updateStats(); if(state.currentTab==='leaderboard') renderLeaderboard(); if(state.currentTab==='profile') renderProfile(); }
 
 window.renderFeed = function(){
   const filtered=getFiltered();
@@ -733,7 +719,7 @@ window.renderFeed = function(){
   const el=document.getElementById('ideas-feed');
   const lm=document.getElementById('load-more-btn');
   document.getElementById('feed-count').textContent=total?total+' idea'+(total!==1?'s':''):'';
-  if(!total){el.innerHTML='<div class="empty"><div class="empty-icon">??</div><p>No ideas found. Try different filters!</p></div>';lm.style.display='none';return;}
+  if(!total){el.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><p>No ideas found. Try different filters!</p></div>';lm.style.display='none';return;}
   const cue = window.__currentUser?.email;
   el.innerHTML=visible.map((idea,i)=>{
     const cm=CAT_META[idea.category]||CAT_META.social;
@@ -744,20 +730,20 @@ window.renderFeed = function(){
     const votedD=state.votedDn.has(idea.id);
     const score=(idea.votes||0)-(idea.downvotes||0);
     const status=idea.status||'Under Review';
-    const waMsg=encodeURIComponent(`?? *${idea.title}*\n\n${(idea.desc||'').substring(0,100)}...\n\n?? IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
+    const waMsg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,100)}...\n\n🌍 IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
     return `<div class="idea-card" style="animation-delay:${Math.min(i,5)*0.05}s" onclick="openModal('${idea.id}')">
       <div class="card-head">
         <div class="vote-col" onclick="event.stopPropagation()">
-          <button class="vote-up${votedU?' voted':''}" onclick="toggleVote('${idea.id}','votes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">?</button>
+          <button class="vote-up${votedU?' voted':''}" onclick="toggleVote('${idea.id}','votes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▲</button>
           <span class="vote-score${score>0?' positive':score<0?' negative':''}">${score}</span>
-          <button class="vote-dn${votedD?' downed':''}" onclick="toggleVote('${idea.id}','downvotes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">?</button>
+          <button class="vote-dn${votedD?' downed':''}" onclick="toggleVote('${idea.id}','downvotes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▼</button>
         </div>
         <div class="card-body">
           <div class="card-tags">
             <span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span>
-            <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]||'??'} ${status}</span>
-            ${isNew?'<span class="tag tag-new">? New</span>':''}
-            ${isMine?'<span class="tag tag-mine">?? Mine</span>':''}
+            <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]||'🔄'} ${status}</span>
+            ${isNew?'<span class="tag tag-new">✨ New</span>':''}
+            ${isMine?'<span class="tag tag-mine">👤 Mine</span>':''}
           </div>
           <div class="card-title">${esc(idea.title)}</div>
           <div class="card-desc">${esc(idea.desc)}</div>
@@ -767,12 +753,12 @@ window.renderFeed = function(){
         <div class="author-row">
           <div class="avatar" style="background:${av}">${ini(idea.author||'?')}</div>
           <span class="author-name">${esc(idea.author||'Anonymous')}</span>
-          ${idea.country?`<span class="author-name">${idea.flag||'??'} ${esc(idea.country)}</span>`:''}
+          ${idea.country?`<span class="author-name">${idea.flag||'🌍'} ${esc(idea.country)}</span>`:''}
           <span class="author-name">· ${timeAgo(idea.ts)}</span>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
-          <span class="meta-chip">?? ${(idea.comments||[]).length}</span>
-          <a href="https://wa.me/?text=${waMsg}" target="_blank" class="wa-btn" onclick="event.stopPropagation()">?? Share</a>
+          <span class="meta-chip">💬 ${(idea.comments||[]).length}</span>
+          <a href="https://wa.me/?text=${waMsg}" target="_blank" class="wa-btn" onclick="event.stopPropagation()">📲 Share</a>
         </div>
       </div>
     </div>`;
@@ -789,79 +775,54 @@ window.updateStats = function(){
 window.renderSidebar = function(){
   const TOPICS=[{n:'Clean Water',c:142},{n:'Rural Education',c:118},{n:'Plastic-Free',c:97},{n:'Mental Health',c:83},{n:'Solar Energy',c:71},{n:'Food Security',c:65}];
   document.getElementById('trend-list').innerHTML=TOPICS.map(t=>`<div class="trend-item" onclick="document.getElementById('s-keyword').value='${t.n.split(' ')[0]}';doSearch();showTab('explore')"><span class="trend-name">${t.n}</span><span class="trend-count">${t.c}</span></div>`).join('');
-  const COUNTRIES=[{flag:'????',name:'India',pct:85},{flag:'????',name:'Brazil',pct:68},{flag:'????',name:'Nigeria',pct:56},{flag:'????',name:'USA',pct:49},{flag:'????',name:'Ghana',pct:42},{flag:'????',name:'Pakistan',pct:35}];
+  const COUNTRIES=[{flag:'🇮🇳',name:'India',pct:85},{flag:'🇧🇷',name:'Brazil',pct:68},{flag:'🇳🇬',name:'Nigeria',pct:56},{flag:'🇺🇸',name:'USA',pct:49},{flag:'🇬🇭',name:'Ghana',pct:42},{flag:'🇵🇰',name:'Pakistan',pct:35}];
   document.getElementById('country-list').innerHTML=COUNTRIES.map(c=>`<div class="country-row"><span class="c-flag">${c.flag}</span><span class="c-name">${c.name}</span><div class="c-bar-bg"><div class="c-bar" style="width:${c.pct}%"></div></div></div>`).join('');
 }
 
-// -- LEADERBOARD --
 function renderLeaderboard(){
   const ideas=window.__ideas||[];
-  // Top ideas by score
   const topIdeas=[...ideas].sort((a,b)=>((b.votes||0)-(b.downvotes||0))-((a.votes||0)-(a.downvotes||0))).slice(0,8);
   document.getElementById('lb-ideas').innerHTML=`<div class="lb-card">${topIdeas.map((idea,i)=>{
     const score=(idea.votes||0)-(idea.downvotes||0);
     const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
     return `<div class="lb-item" onclick="openModal('${idea.id}')" style="cursor:pointer">
-      <div class="lb-rank ${rankClass}">${i===0?'??':i===1?'??':i===2?'??':i+1}</div>
-      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} · ${idea.flag||'??'} ${esc(idea.country||'')}</div></div>
+      <div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
+      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} · ${idea.flag||'🌍'} ${esc(idea.country||'')}</div></div>
       <div class="lb-score">${score>0?'+':''}${score}</div>
     </div>`;
   }).join('')}</div>`;
-  // Top contributors
   const contribs={};
-  ideas.forEach(i=>{
-    const k=i.ownerEmail||i.author||'Anonymous';
-    if(!contribs[k]) contribs[k]={name:i.ownerName||i.author||'Anonymous',flag:i.flag||'??',country:i.country||'',ideas:0,votes:0};
-    contribs[k].ideas++;
-    contribs[k].votes+=(i.votes||0);
-  });
+  ideas.forEach(i=>{ const k=i.ownerEmail||i.author||'Anonymous'; if(!contribs[k]) contribs[k]={name:i.ownerName||i.author||'Anonymous',flag:i.flag||'🌍',country:i.country||'',ideas:0,votes:0}; contribs[k].ideas++; contribs[k].votes+=(i.votes||0); });
   const topContribs=Object.values(contribs).sort((a,b)=>b.votes-a.votes).slice(0,8);
   document.getElementById('lb-contributors').innerHTML=`<div class="lb-card">${topContribs.map((c,i)=>{
     const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
-    return `<div class="lb-item">
-      <div class="lb-rank ${rankClass}">${i===0?'??':i===1?'??':i===2?'??':i+1}</div>
-      <div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} · ${c.ideas} idea${c.ideas!==1?'s':''}</div></div>
-      <div class="lb-score">?? ${c.votes}</div>
-    </div>`;
+    return `<div class="lb-item"><div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div><div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} · ${c.ideas} idea${c.ideas!==1?'s':''}</div></div><div class="lb-score">👍 ${c.votes}</div></div>`;
   }).join('')}</div>`;
 }
 
-// -- PROFILE --
 function renderProfile(){
   const user=window.__currentUser;
   const pc=document.getElementById('profile-content');
-  if(!user){pc.innerHTML='<div class="s-title">?? Your Profile</div><div style="text-align:center;padding:1rem 0"><p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button></div>';return;}
+  if(!user){pc.innerHTML='<div class="s-title">👤 Your Profile</div><div style="text-align:center;padding:1rem 0"><p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button></div>';return;}
   const myIdeas=(window.__ideas||[]).filter(i=>i.ownerEmail===user.email);
   const totalVotes=myIdeas.reduce((s,i)=>s+(i.votes||0),0);
-  pc.innerHTML=`<div class="s-title">?? Your Profile</div>
-    <div class="user-profile-card" style="margin-bottom:1rem;">
-      <img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'" style="width:50px;height:50px;">
-      <div><div class="user-profile-name" style="font-size:1rem;">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div>
-    </div>
+  pc.innerHTML=`<div class="s-title">👤 Your Profile</div>
+    <div class="user-profile-card" style="margin-bottom:1rem;"><img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'" style="width:50px;height:50px;"><div><div class="user-profile-name" style="font-size:1rem;">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
       <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Ideas</div></div>
       <div class="m-stat"><div class="m-stat-n">${totalVotes}</div><div class="m-stat-l">Votes Got</div></div>
       <div class="m-stat"><div class="m-stat-n">${myIdeas.filter(i=>i.status==='Implemented').length}</div><div class="m-stat-l">Implemented</div></div>
     </div>
     <div style="font-family:'Fraunces',serif;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem;">Your Ideas</div>
-    ${myIdeas.length?myIdeas.map(idea=>{
-      const status=idea.status||'Under Review';
-      return `<div style="padding:0.65rem;background:var(--cream);border-radius:8px;margin-bottom:0.5rem;cursor:pointer;" onclick="openModal('${idea.id}')">
-        <div style="font-size:0.82rem;font-weight:600;margin-bottom:3px;">${esc(idea.title)}</div>
-        <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span>
-        <span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">?? ${idea.votes||0} votes · ?? ${(idea.comments||[]).length}</span>
-      </div>`;
-    }).join(''):'<p style="font-size:0.8rem;color:var(--muted);">No ideas yet. Share your first idea!</p>'}
+    ${myIdeas.length?myIdeas.map(idea=>{ const status=idea.status||'Under Review'; return `<div style="padding:0.65rem;background:var(--cream);border-radius:8px;margin-bottom:0.5rem;cursor:pointer;" onclick="openModal('${idea.id}')"><div style="font-size:0.82rem;font-weight:600;margin-bottom:3px;">${esc(idea.title)}</div><span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span><span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">👍 ${idea.votes||0} votes · 💬 ${(idea.comments||[]).length}</span></div>`; }).join(''):'<p style="font-size:0.8rem;color:var(--muted);">No ideas yet. Share your first idea!</p>'}
     <a class="logout-link" onclick="logoutUser()" style="margin-top:0.75rem;">Sign out</a>`;
 }
 
-// -- VOTE --
 async function toggleVote(id, field, ideaTitle, ownerEmail, ownerName){
   if(!window.__voteIdea){showToast('Connecting...','');return;}
   const isUp = field==='votes';
   const votedSet = isUp ? state.votedUp : state.votedDn;
   const otherSet = isUp ? state.votedDn : state.votedUp;
-  const otherField = isUp ? 'downvotes' : 'votes';
   const voted = votedSet.has(id);
   const val = voted ? -1 : 1;
   if(voted) votedSet.delete(id); else { votedSet.add(id); otherSet.delete(id); }
@@ -869,17 +830,11 @@ async function toggleVote(id, field, ideaTitle, ownerEmail, ownerName){
   localStorage.setItem('is_voted_dn', JSON.stringify([...state.votedDn]));
   try{
     await window.__voteIdea(id, field, val);
-    if(!voted && otherSet !== (isUp?state.votedUp:state.votedDn)) {
-      // Remove opposite vote if switching
-    }
-    if(isUp && val>0 && ownerEmail && window.__sendNotif) {
-      window.__sendNotif(ownerEmail, ideaTitle, window.__currentUser?.displayName||'Someone', 'vote');
-    }
-    showToast(val>0?(isUp?'? Upvoted! ??':'? Downvoted'):'Vote removed.',val>0&&isUp?'success':'');
+    if(isUp && val>0 && ownerEmail && window.__sendNotif) window.__sendNotif(ownerEmail, ideaTitle, window.__currentUser?.displayName||'Someone', 'vote');
+    showToast(val>0?(isUp?'▲ Upvoted! 🎉':'▼ Downvoted'):'Vote removed.',val>0&&isUp?'success':'');
   }catch(e){showToast('Error. Try again.','error');}
 }
 
-// -- FORM --
 function updateCC(inputId,countId,max){const v=document.getElementById(inputId).value.length;document.getElementById(countId).textContent=`${v} / ${max}`;}
 
 async function submitIdea(){
@@ -896,21 +851,20 @@ async function submitIdea(){
   if(!valid)return;
   if(!window.__submitIdea){showToast('Please wait...','error');return;}
   const btn=document.getElementById('submit-btn');
-  btn.disabled=true;btn.textContent='? Submitting…';
-  const flagMap={'india':'????','brazil':'????','nigeria':'????','usa':'????','ghana':'????','pakistan':'????','kenya':'????','bangladesh':'????','indonesia':'????','mexico':'????','ethiopia':'????','egypt':'????','china':'????','uk':'????','germany':'????','france':'????','japan':'????'};
-  const flag=country?(flagMap[country.toLowerCase()]||'??'):'??';
+  btn.disabled=true;btn.textContent='⏳ Submitting…';
+  const flagMap={'india':'🇮🇳','brazil':'🇧🇷','nigeria':'🇳🇬','usa':'🇺🇸','ghana':'🇬🇭','pakistan':'🇵🇰','kenya':'🇰🇪','bangladesh':'🇧🇩','indonesia':'🇮🇩','mexico':'🇲🇽','ethiopia':'🇪🇹','egypt':'🇪🇬','china':'🇨🇳','uk':'🇬🇧','germany':'🇩🇪','france':'🇫🇷','japan':'🇯🇵'};
+  const flag=country?(flagMap[country.toLowerCase()]||'🌍'):'🌍';
   try{
     await window.__submitIdea({title,desc,category:cat,author,country,flag});
     ['f-title','f-desc','f-author','f-country'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-cat').value='';
     if(window.__currentUser) document.getElementById('f-author').value=window.__currentUser.displayName||'';
     showTab('explore');
-    showToast('?? Your idea is live worldwide!','success');
+    showToast('🎉 Your idea is live worldwide!','success');
   }catch(e){showToast('Error. Try again.','error');}
-  btn.disabled=false;btn.textContent='?? Submit Idea';
+  btn.disabled=false;btn.textContent='🚀 Submit Idea';
 }
 
-// -- MODAL --
 function openModal(id){
   const idea=(window.__ideas||[]).find(i=>i.id===id);
   if(!idea)return;
@@ -928,24 +882,19 @@ function openModal(id){
   const avEl=document.getElementById('m-avatar');
   avEl.style.background=av; avEl.textContent=ini(idea.author||'?');
   document.getElementById('m-author-name').textContent=idea.author||'Anonymous';
-  document.getElementById('m-author-sub').textContent=`${idea.flag||'??'} ${idea.country||'World'} · ${timeAgo(idea.ts)} ago`;
+  document.getElementById('m-author-sub').textContent=`${idea.flag||'🌍'} ${idea.country||'World'} · ${timeAgo(idea.ts)} ago`;
   document.getElementById('cmt-input').value='';
-  // Vote buttons
   const votedU=state.votedUp.has(id);
   const votedD=state.votedDn.has(id);
   const mvb=document.getElementById('m-vote-btn');
   mvb.classList.toggle('voted-m',votedU);
-  mvb.textContent=votedU?'? Upvoted':'? Upvote';
+  mvb.textContent=votedU?'✓ Upvoted':'▲ Upvote';
   const mdb=document.getElementById('m-dn-btn');
   mdb.classList.toggle('downed-m',votedD);
-  mdb.textContent=votedD?'? Downvoted':'? Downvote';
-  // Status selector for owner
+  mdb.textContent=votedD?'✓ Downvoted':'▼ Downvote';
   const ss=document.getElementById('status-selector');
   const cue=window.__currentUser?.email;
-  if(cue && idea.ownerEmail===cue){
-    ss.style.display='block';
-    document.getElementById('status-sel').value=status;
-  } else { ss.style.display='none'; }
+  if(cue && idea.ownerEmail===cue){ ss.style.display='block'; document.getElementById('status-sel').value=status; } else { ss.style.display='none'; }
   renderComments(idea);
   document.getElementById('overlay').classList.add('open');
   document.body.style.overflow='hidden';
@@ -953,31 +902,23 @@ function openModal(id){
 
 function closeModal(){document.getElementById('overlay').classList.remove('open');document.body.style.overflow='';state.modalId=null;}
 function overlayClick(e){if(e.target===document.getElementById('overlay'))closeModal();}
-
-function voteFromModal(field){
-  if(!state.modalId)return;
-  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
-  if(idea) toggleVote(state.modalId,field,idea.title,idea.ownerEmail||'',idea.ownerName||idea.author||'');
-}
+function voteFromModal(field){if(!state.modalId)return;const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);if(idea) toggleVote(state.modalId,field,idea.title,idea.ownerEmail||'',idea.ownerName||idea.author||'');}
 
 async function updateIdeaStatus(){
   if(!state.modalId||!window.__updateStatus)return;
   const newStatus=document.getElementById('status-sel').value;
-  try{
-    await window.__updateStatus(state.modalId,newStatus);
-    showToast(`Status updated: ${newStatus}!`,'success');
-  }catch(e){showToast('Error updating status.','error');}
+  try{ await window.__updateStatus(state.modalId,newStatus); showToast(`Status updated: ${newStatus}!`,'success'); }catch(e){showToast('Error updating status.','error');}
 }
 
 function shareIdeaWA(){
   const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
   if(!idea)return;
-  const msg=encodeURIComponent(`?? *${idea.title}*\n\n${(idea.desc||'').substring(0,150)}...\n\n?? Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
+  const msg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,150)}...\n\n🌍 Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
   window.open(`https://wa.me/?text=${msg}`,'_blank');
 }
 
 function shareWebsite(){
-  const msg=encodeURIComponent('?? IdeaSphere — Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
+  const msg=encodeURIComponent('🌍 IdeaSphere — Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
   window.open(`https://wa.me/?text=${msg}`,'_blank');
 }
 
@@ -1002,37 +943,20 @@ async function addComment(){
     inp.value='';
     const updated=(window.__ideas||[]).find(i=>i.id===state.modalId);
     if(updated)renderComments(updated);
-    showToast('?? Comment posted!','success');
+    showToast('💬 Comment posted!','success');
   }catch(e){showToast('Error.','error');}
 }
 
 function loadMore(){state.page++;renderFeed();}
 
 let toastTimer;
-function showAbout(){ showToast('?? IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action. .','success'); }
+function showAbout(){ showToast('🌍 IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges.','success'); }
 function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='toast';},3000);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 renderSidebar();
-  let _modalResolve=null;
-function showJoinModal(){return new Promise(r=>{_modalResolve=r;document.getElementById('is-modal').classList.add('show');setTimeout(()=>{const i=document.getElementById('modal-name');if(i)i.focus();},280);});}
-function modalDone(){const n=document.getElementById('modal-name');const e=document.getElementById('modal-email');const name=n.value.trim();const email=e.value.trim();if(!name){n.classList.add('error');n.placeholder='Naam zaroori hai! ??';n.focus();return;}n.classList.remove('error');document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name,email});}
-function modalSkip(){document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name:'Anonymous',email:''});}
-function sendIdeaNotification(title,name,email){const t=document.getElementById('is-toast');if(t){t.textContent='?? Idea submitted! 87 countries mein live!';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),4000);}if(!email||typeof emailjs==='undefined')return;emailjs.send('service_tlgp8gj','template_maj591',{to_name:name||'User',to_email:email,idea_title:title||'Your Idea',platform_name:'IdeaSphere',idea_url:'https://ideasphere-debug.github.io/ideasphere',from_name:'IdeaSphere Team'},'NX-Nh_CaDvJLi357V').catch(e=>console.warn('EmailJS:',e));}v
 </script>
-<div class="modal-overlay" id="is-modal">
-  <div class="modal-box">
-    <div class="modal-logo">??</div>
-    <div class="modal-title">Join IdeaSphere</div>
-    <div class="modal-sub">Share your ideas with 87+ countries · Free Forever</div>
-    <label class="modal-label">Your Name *</label>
-    <input class="modal-input" id="modal-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50"/>
-    <label class="modal-label">Email <span style="color:rgba(255,255,255,0.38)">(notifications ke liye)</span></label>
-    <input class="modal-input" id="modal-email" type="email" placeholder="your@email.com"/>
-    <button class="modal-btn" onclick="modalDone()">?? Join IdeaSphere</button>
-    <button class="modal-skip" onclick="modalSkip()">Skip for now</button>
-  </div>
-</div>
-<div class="is-toast" id="is-toast"></div>
 </body>
 </html>
+ENDOFFILE
+echo "Done! Size: $(wc -c < /home/claude/index_perfect.html) bytes"
