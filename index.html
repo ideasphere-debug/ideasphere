@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IdeaSphere � Global Community Ideas Platform</title>
+<title>IdeaSphere — Global Community Ideas Platform</title>
 <meta name="google-site-verification" content="5zttx5DSrOtcwkjMOY8w1NQTLtyaaYLFzSG-WnV1S5U" />
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-QHNHW4C04L"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-QHNHW4C04L');</script>
@@ -29,10 +29,12 @@
   getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! ??`,'success'); }).catch(()=>{});
   onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
   window.__loginGoogle = async () => {
-    if(!window.showJoinModal){ setTimeout(()=>window.__loginGoogle(),300); return; }
-    const { name, email } = await window.showJoinModal();
+    // Simple local login - no Google OAuth needed
+    const name = prompt('Enter your name to join IdeaSphere:');
+    if(!name || !name.trim()) return;
+    const email = prompt('Enter your email (for notifications):') || '';
     const fakeUser = {
-      displayName: name.trim()||'Anonymous',
+      displayName: name.trim(),
       email: email.trim(),
       photoURL: null,
       uid: 'local_' + Date.now()
@@ -40,7 +42,7 @@
     localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
     window.__currentUser = fakeUser;
     if(window.updateAuthUI) window.updateAuthUI(fakeUser);
-    if(window.showToast) window.showToast('Welcome, '+fakeUser.displayName+'!', 'success');
+    if(window.showToast) window.showToast(`Welcome, ${name.trim()}! ??`, 'success');
   };
   window.__logout = async () => {
     localStorage.removeItem('is_local_user');
@@ -58,7 +60,7 @@
   window.__logout_firebase = async () => { try { await signOut(auth); } catch(e) {} };
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
   onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
-  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); if(window.sendIdeaNotification) window.sendIdeaNotification(idea.title,window.__currentUser?.displayName||idea.author,window.__currentUser?.email||''); return r.id; };
+  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); return r.id; };
   window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
   window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
   window.__updateStatus = async (id,status) => { await updateDoc(doc(db,"ideas",id),{status}); };
@@ -316,27 +318,9 @@ footer span{color:#4ade80}
 .modal-skip:hover{color:rgba(255,255,255,0.65);}
 .is-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,0.35);max-width:90vw;text-align:center;}
 .is-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
-
-/* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
-.modal-overlay.show{opacity:1;pointer-events:all;}
-.modal-box{background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;transform:translateY(24px);transition:transform 0.25s;}
-.modal-overlay.show .modal-box{transform:translateY(0);}
-.modal-logo{font-size:32px;text-align:center;margin-bottom:8px;}
-.modal-title{font-size:20px;font-weight:700;color:#fff;text-align:center;margin-bottom:4px;}
-.modal-sub{font-size:13px;color:rgba(255,255,255,0.55);text-align:center;margin-bottom:22px;}
-.modal-label{font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:block;font-weight:500;}
-.modal-input{width:100%;padding:12px 14px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.07);color:#fff;font-size:15px;outline:none;margin-bottom:14px;box-sizing:border-box;transition:border-color 0.2s;}
-.modal-input:focus{border-color:#4f7c3f;}
-.modal-input::placeholder{color:rgba(255,255,255,0.3);}
-.modal-input.error{border-color:#e74c3c;}
-.modal-btn{width:100%;padding:13px;border-radius:9px;border:none;background:linear-gradient(135deg,#4f7c3f,#2d4a22);color:#fff;font-size:15px;font-weight:600;cursor:pointer;}
-.modal-skip{width:100%;padding:9px;border-radius:9px;border:none;background:transparent;color:rgba(255,255,255,0.4);font-size:13px;cursor:pointer;margin-top:8px;}
-.notif-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;max-width:90vw;text-align:center;}
-.notif-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 <meta name="description" content="Share your ideas with the world! IdeaSphere is a free platform where students and citizens from 87+ countries vote and grow ideas that make our world better."/>
-<meta property="og:title" content="IdeaSphere � Global Community Ideas Platform"/>
+<meta property="og:title" content="IdeaSphere — Global Community Ideas Platform"/>
 <meta property="og:description" content="Join 87+ countries sharing world-changing ideas. Free forever!"/>
 <meta property="og:url" content="https://ideasphere-debug.github.io/ideasphere/"/>
 <meta property="og:type" content="website"/>
@@ -362,7 +346,7 @@ footer span{color:#4ade80}
 <!-- HERO -->
 <section class="hero">
   <div class="hero-inner">
-    <div class="hero-pill">?? Open Platform � 87 Countries � Free Forever</div>
+    <div class="hero-pill">?? Open Platform · 87 Countries · Free Forever</div>
     <h1>Where <em>Community</em><br>Ideas Change the World</h1>
     <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
     <div class="hero-cta">
@@ -391,7 +375,7 @@ footer span{color:#4ade80}
         <div class="search-panel">
           <div class="search-panel-title">?? Advanced Search</div>
           <div class="search-grid">
-            <input class="s-inp search-full" id="s-keyword" placeholder="Keywords, title, description�" oninput="doSearch()">
+            <input class="s-inp search-full" id="s-keyword" placeholder="Keywords, title, description…" oninput="doSearch()">
             <select class="s-sel" id="s-cat" onchange="doSearch()">
               <option value="">All Categories</option>
               <option value="environment">?? Environment</option>
@@ -401,7 +385,7 @@ footer span{color:#4ade80}
               <option value="social">?? Social</option>
               <option value="food">?? Food & Agriculture</option>
             </select>
-            <input class="s-inp" id="s-country" placeholder="Country�" oninput="doSearch()">
+            <input class="s-inp" id="s-country" placeholder="Country…" oninput="doSearch()">
             <select class="s-sel" id="s-status" onchange="doSearch()">
               <option value="">All Statuses</option>
               <option value="Under Review">Under Review</option>
@@ -463,7 +447,7 @@ footer span{color:#4ade80}
         <div class="form">
           <div>
             <label class="f-label">Idea Title *</label>
-            <input class="f-inp" id="f-title" maxlength="100" oninput="updateCC('f-title','tc-title',100)" placeholder="A clear, catchy name�">
+            <input class="f-inp" id="f-title" maxlength="100" oninput="updateCC('f-title','tc-title',100)" placeholder="A clear, catchy name…">
             <div class="char-count" id="tc-title">0 / 100</div>
             <div class="form-error" id="err-title"></div>
           </div>
@@ -476,7 +460,7 @@ footer span{color:#4ade80}
           <div>
             <label class="f-label">Category *</label>
             <select class="f-sel" id="f-cat">
-              <option value="">Choose a category�</option>
+              <option value="">Choose a category…</option>
               <option value="environment">?? Environment</option>
               <option value="education">?? Education</option>
               <option value="health">?? Health</option>
@@ -628,7 +612,7 @@ footer span{color:#4ade80}
       <div class="comments-section">
         <div class="comments-title" id="cmts-title">Comments</div>
         <div class="comment-box">
-          <input class="comment-input" id="cmt-input" placeholder="Add a comment�" maxlength="300" onkeydown="if(event.key==='Enter')addComment()">
+          <input class="comment-input" id="cmt-input" placeholder="Add a comment…" maxlength="300" onkeydown="if(event.key==='Enter')addComment()">
           <button class="comment-submit" onclick="addComment()">Post</button>
         </div>
         <div class="comment-list" id="cmt-list"></div>
@@ -640,7 +624,7 @@ footer span{color:#4ade80}
 <div class="toast" id="toast"></div>
 
 <footer>
-  <footer>Made with ? for the world � IdeaSphere � 2026 &nbsp;�&nbsp; <a href="./about.html" style="color:#4ade80;text-decoration:none;">About Us</a> &nbsp;�&nbsp; <a href="./privacy.html" style="color:#4ade80;text-decoration:none;">Privacy Policy</a> &nbsp;�&nbsp; <a href="./terms.html" style="color:#4ade80;text-decoration:none;">Terms of Use</a> &nbsp;�&nbsp; <a href="mailto:ideaspherecontact0@gmail.com" style="color:#4ade80;text-decoration:none;">Contact</a></footer>
+  <footer>Made with ? for the world · IdeaSphere © 2026 &nbsp;·&nbsp; <a href="./about.html" style="color:#4ade80;text-decoration:none;">About Us</a> &nbsp;·&nbsp; <a href="./privacy.html" style="color:#4ade80;text-decoration:none;">Privacy Policy</a> &nbsp;·&nbsp; <a href="./terms.html" style="color:#4ade80;text-decoration:none;">Terms of Use</a> &nbsp;·&nbsp; <a href="mailto:ideaspherecontact0@gmail.com" style="color:#4ade80;text-decoration:none;">Contact</a></footer>
 </footer>
 
 <script>
@@ -737,13 +721,6 @@ function getFiltered(){
 window.renderAll = function(){
   renderFeed();
   renderSidebar();
-
-  let _modalResolve=null;
-window.showJoinModal=function(){return new Promise(r=>{_modalResolve=r;document.getElementById('is-modal').classList.add('show');setTimeout(()=>{const i=document.getElementById('modal-name');if(i)i.focus();},280);});};
-function modalDone(){const n=document.getElementById('modal-name');const e=document.getElementById('modal-email');const name=n.value.trim();const email=e.value.trim();if(!name){n.classList.add('error');n.placeholder='Name required!';n.focus();return;}n.classList.remove('error');document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name,email});}
-function modalSkip(){document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name:'Anonymous',email:''});}
-window.sendIdeaNotification=function(title,name,email){const t=document.getElementById('is-toast');if(t){t.textContent='Idea submitted! Live in 87 countries!';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),4000);}if(!email||typeof emailjs==='undefined')return;emailjs.send('service_tlgp8gj','template_maj591',{to_name:name||'User',to_email:email,idea_title:title||'Your Idea',platform_name:'IdeaSphere',idea_url:'https://ideasphere-debug.github.io/ideasphere',from_name:'IdeaSphere Team'},'NX-Nh_CaDvJLi357V').catch(e=>console.warn('EmailJS:',e));}
-
   updateStats();
   if(state.currentTab==='leaderboard') renderLeaderboard();
   if(state.currentTab==='profile') renderProfile();
@@ -791,7 +768,7 @@ window.renderFeed = function(){
           <div class="avatar" style="background:${av}">${ini(idea.author||'?')}</div>
           <span class="author-name">${esc(idea.author||'Anonymous')}</span>
           ${idea.country?`<span class="author-name">${idea.flag||'??'} ${esc(idea.country)}</span>`:''}
-          <span class="author-name">� ${timeAgo(idea.ts)}</span>
+          <span class="author-name">· ${timeAgo(idea.ts)}</span>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span class="meta-chip">?? ${(idea.comments||[]).length}</span>
@@ -826,7 +803,7 @@ function renderLeaderboard(){
     const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
     return `<div class="lb-item" onclick="openModal('${idea.id}')" style="cursor:pointer">
       <div class="lb-rank ${rankClass}">${i===0?'??':i===1?'??':i===2?'??':i+1}</div>
-      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} � ${idea.flag||'??'} ${esc(idea.country||'')}</div></div>
+      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} · ${idea.flag||'??'} ${esc(idea.country||'')}</div></div>
       <div class="lb-score">${score>0?'+':''}${score}</div>
     </div>`;
   }).join('')}</div>`;
@@ -843,7 +820,7 @@ function renderLeaderboard(){
     const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
     return `<div class="lb-item">
       <div class="lb-rank ${rankClass}">${i===0?'??':i===1?'??':i===2?'??':i+1}</div>
-      <div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} � ${c.ideas} idea${c.ideas!==1?'s':''}</div></div>
+      <div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} · ${c.ideas} idea${c.ideas!==1?'s':''}</div></div>
       <div class="lb-score">?? ${c.votes}</div>
     </div>`;
   }).join('')}</div>`;
@@ -872,7 +849,7 @@ function renderProfile(){
       return `<div style="padding:0.65rem;background:var(--cream);border-radius:8px;margin-bottom:0.5rem;cursor:pointer;" onclick="openModal('${idea.id}')">
         <div style="font-size:0.82rem;font-weight:600;margin-bottom:3px;">${esc(idea.title)}</div>
         <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span>
-        <span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">?? ${idea.votes||0} votes � ?? ${(idea.comments||[]).length}</span>
+        <span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">?? ${idea.votes||0} votes · ?? ${(idea.comments||[]).length}</span>
       </div>`;
     }).join(''):'<p style="font-size:0.8rem;color:var(--muted);">No ideas yet. Share your first idea!</p>'}
     <a class="logout-link" onclick="logoutUser()" style="margin-top:0.75rem;">Sign out</a>`;
@@ -919,7 +896,7 @@ async function submitIdea(){
   if(!valid)return;
   if(!window.__submitIdea){showToast('Please wait...','error');return;}
   const btn=document.getElementById('submit-btn');
-  btn.disabled=true;btn.textContent='? Submitting�';
+  btn.disabled=true;btn.textContent='? Submitting…';
   const flagMap={'india':'????','brazil':'????','nigeria':'????','usa':'????','ghana':'????','pakistan':'????','kenya':'????','bangladesh':'????','indonesia':'????','mexico':'????','ethiopia':'????','egypt':'????','china':'????','uk':'????','germany':'????','france':'????','japan':'????'};
   const flag=country?(flagMap[country.toLowerCase()]||'??'):'??';
   try{
@@ -951,7 +928,7 @@ function openModal(id){
   const avEl=document.getElementById('m-avatar');
   avEl.style.background=av; avEl.textContent=ini(idea.author||'?');
   document.getElementById('m-author-name').textContent=idea.author||'Anonymous';
-  document.getElementById('m-author-sub').textContent=`${idea.flag||'??'} ${idea.country||'World'} � ${timeAgo(idea.ts)} ago`;
+  document.getElementById('m-author-sub').textContent=`${idea.flag||'??'} ${idea.country||'World'} · ${timeAgo(idea.ts)} ago`;
   document.getElementById('cmt-input').value='';
   // Vote buttons
   const votedU=state.votedUp.has(id);
@@ -1000,7 +977,7 @@ function shareIdeaWA(){
 }
 
 function shareWebsite(){
-  const msg=encodeURIComponent('?? IdeaSphere � Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
+  const msg=encodeURIComponent('?? IdeaSphere — Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
   window.open(`https://wa.me/?text=${msg}`,'_blank');
 }
 
@@ -1010,7 +987,7 @@ function renderComments(idea){
   const cmts=idea.comments||[];
   title.textContent=`Comments (${cmts.length})`;
   if(!cmts.length){list.innerHTML='<div style="font-size:0.75rem;color:var(--muted);padding:0.4rem 0">No comments yet!</div>';return;}
-  list.innerHTML=[...cmts].reverse().map(c=>`<div class="comment-item"><div class="comment-meta">${esc(c.name||'Anonymous')} � ${timeAgo(c.ts)}</div><div class="comment-text">${esc(c.text)}</div></div>`).join('');
+  list.innerHTML=[...cmts].reverse().map(c=>`<div class="comment-item"><div class="comment-meta">${esc(c.name||'Anonymous')} · ${timeAgo(c.ts)}</div><div class="comment-text">${esc(c.text)}</div></div>`).join('');
 }
 
 async function addComment(){
@@ -1032,7 +1009,7 @@ async function addComment(){
 function loadMore(){state.page++;renderFeed();}
 
 let toastTimer;
-function showAbout(){ showToast('?? IdeaSphere � A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action. .','success'); }
+function showAbout(){ showToast('?? IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges. Our mission is to connect creative minds globally and turn impactful ideas into action. .','success'); }
 function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='toast';},3000);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
@@ -1047,7 +1024,7 @@ function sendIdeaNotification(title,name,email){const t=document.getElementById(
   <div class="modal-box">
     <div class="modal-logo">??</div>
     <div class="modal-title">Join IdeaSphere</div>
-    <div class="modal-sub">Share your ideas with 87+ countries � Free Forever</div>
+    <div class="modal-sub">Share your ideas with 87+ countries · Free Forever</div>
     <label class="modal-label">Your Name *</label>
     <input class="modal-input" id="modal-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50"/>
     <label class="modal-label">Email <span style="color:rgba(255,255,255,0.38)">(notifications ke liye)</span></label>
@@ -1057,21 +1034,5 @@ function sendIdeaNotification(title,name,email){const t=document.getElementById(
   </div>
 </div>
 <div class="is-toast" id="is-toast"></div>
-
-<div class="modal-overlay" id="is-modal">
-  <div class="modal-box">
-    <div class="modal-logo">&#127758;</div>
-    <div class="modal-title">Join IdeaSphere</div>
-    <div class="modal-sub">Share ideas with 87+ countries &middot; Free Forever</div>
-    <label class="modal-label">Your Name *</label>
-    <input class="modal-input" id="modal-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50"/>
-    <label class="modal-label">Email <span style="color:rgba(255,255,255,0.35);font-weight:400;">(for notifications)</span></label>
-    <input class="modal-input" id="modal-email" type="email" placeholder="your@email.com"/>
-    <button class="modal-btn" onclick="modalDone()">Join IdeaSphere &rarr;</button>
-    <button class="modal-skip" onclick="modalSkip()">Skip for now</button>
-  </div>
-</div>
-<div class="notif-toast" id="is-toast"></div>
-
 </body>
 </html>
