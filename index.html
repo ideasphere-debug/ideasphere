@@ -299,6 +299,25 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 
 footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.1rem;font-size:0.75rem;}
 footer span{color:#4ade80}
+/* CUSTOM MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.modal-overlay.show{opacity:1;pointer-events:all;}
+.modal-box{background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;transform:translateY(24px);transition:transform 0.25s;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+.modal-overlay.show .modal-box{transform:translateY(0);}
+.modal-logo{font-size:36px;text-align:center;margin-bottom:8px;}
+.modal-title{font-size:20px;font-weight:700;color:#fff;text-align:center;margin-bottom:4px;}
+.modal-sub{font-size:13px;color:rgba(255,255,255,0.55);text-align:center;margin-bottom:22px;line-height:1.5;}
+.modal-label{font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:block;font-weight:500;}
+.modal-input{width:100%;padding:12px 14px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.07);color:#fff;font-size:15px;outline:none;margin-bottom:14px;box-sizing:border-box;transition:border-color 0.2s;}
+.modal-input:focus{border-color:#4f7c3f;background:rgba(255,255,255,0.1);}
+.modal-input::placeholder{color:rgba(255,255,255,0.3);}
+.modal-input.error{border-color:#e74c3c;}
+.modal-btn{width:100%;padding:13px;border-radius:9px;border:none;background:linear-gradient(135deg,#4f7c3f,#2d4a22);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.2s;letter-spacing:0.3px;}
+.modal-btn:hover{opacity:0.88;}
+.modal-skip{width:100%;padding:9px;border-radius:9px;border:none;background:transparent;color:rgba(255,255,255,0.38);font-size:13px;cursor:pointer;margin-top:8px;transition:color 0.2s;}
+.modal-skip:hover{color:rgba(255,255,255,0.65);}
+.is-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,0.35);max-width:90vw;text-align:center;}
+.is-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 <meta name="description" content="Share your ideas with the world! IdeaSphere is a free platform where students and citizens from 87+ countries vote and grow ideas that make our world better."/>
 <meta property="og:title" content="IdeaSphere — Global Community Ideas Platform"/>
@@ -995,6 +1014,25 @@ function showToast(msg,type=''){const t=document.getElementById('toast');t.textC
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 renderSidebar();
+  let _modalResolve=null;
+function showJoinModal(){return new Promise(r=>{_modalResolve=r;document.getElementById('is-modal').classList.add('show');setTimeout(()=>{const i=document.getElementById('modal-name');if(i)i.focus();},280);});}
+function modalDone(){const n=document.getElementById('modal-name');const e=document.getElementById('modal-email');const name=n.value.trim();const email=e.value.trim();if(!name){n.classList.add('error');n.placeholder='Naam zaroori hai! ✍️';n.focus();return;}n.classList.remove('error');document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name,email});}
+function modalSkip(){document.getElementById('is-modal').classList.remove('show');if(_modalResolve)_modalResolve({name:'Anonymous',email:''});}
+function sendIdeaNotification(title,name,email){const t=document.getElementById('is-toast');if(t){t.textContent='🎉 Idea submitted! 87 countries mein live!';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),4000);}if(!email||typeof emailjs==='undefined')return;emailjs.send('service_tlgp8gj','template_maj591',{to_name:name||'User',to_email:email,idea_title:title||'Your Idea',platform_name:'IdeaSphere',idea_url:'https://ideasphere-debug.github.io/ideasphere',from_name:'IdeaSphere Team'},'NX-Nh_CaDvJLi357V').catch(e=>console.warn('EmailJS:',e));}v
 </script>
+<div class="modal-overlay" id="is-modal">
+  <div class="modal-box">
+    <div class="modal-logo">🌍</div>
+    <div class="modal-title">Join IdeaSphere</div>
+    <div class="modal-sub">Share your ideas with 87+ countries · Free Forever</div>
+    <label class="modal-label">Your Name *</label>
+    <input class="modal-input" id="modal-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50"/>
+    <label class="modal-label">Email <span style="color:rgba(255,255,255,0.38)">(notifications ke liye)</span></label>
+    <input class="modal-input" id="modal-email" type="email" placeholder="your@email.com"/>
+    <button class="modal-btn" onclick="modalDone()">🚀 Join IdeaSphere</button>
+    <button class="modal-skip" onclick="modalSkip()">Skip for now</button>
+  </div>
+</div>
+<div class="is-toast" id="is-toast"></div>
 </body>
 </html>
