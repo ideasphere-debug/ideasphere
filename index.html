@@ -16,7 +16,8 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getAuth, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  
   const firebaseConfig = {
     apiKey: "AIzaSyABFq1tpVgWX-EmtBaY0_0UxjwRt5PYRWU",
     authDomain: "ideasphere-edc0d.firebaseapp.com",
@@ -25,52 +26,124 @@
     messagingSenderId: "450267293030",
     appId: "1:450267293030:web:65e6ca377d9477e2c954a7"
   };
+
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const auth = getAuth(app);
   const provider = new GoogleAuthProvider();
   window.__db = db;
   window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
-  getRedirectResult(auth).then(r => { if(r?.user && window.showToast) window.showToast(`Welcome, ${r.user.displayName?.split(' ')[0]}! 🎉`,'success'); }).catch(()=>{});
-  onAuthStateChanged(auth, u => { window.__currentUser = u; if(window.updateAuthUI) window.updateAuthUI(u); });
+
+  // Track state change dynamically
+  onAuthStateChanged(auth, u => {
+    if (u) {
+      localStorage.removeItem('is_local_user');
+      window.__currentUser = u;
+    } else {
+      const savedUser = localStorage.getItem('is_local_user');
+      if (savedUser) {
+        try { window.__currentUser = JSON.parse(savedUser); } catch(e) { window.__currentUser = null; }
+      } else {
+        window.__currentUser = null;
+      }
+    }
+    if(window.updateAuthUI) window.updateAuthUI(window.__currentUser);
+  });
+
+  // RESTORED: Real Google Sign In function with local modal backup
   window.__loginGoogle = async () => {
-    if(!window.showJoinModal){ setTimeout(()=>window.__loginGoogle(),300); return; }
-    const { name, email } = await window.showJoinModal();
-    if(!name) return;
-    const fakeUser = {
-      displayName: name.trim(),
-      email: email.trim(),
-      photoURL: null,
-      uid: 'local_' + Date.now()
-    };
-    localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
-    window.__currentUser = fakeUser;
-    if(window.updateAuthUI) window.updateAuthUI(fakeUser);
-    if(window.showToast) window.showToast('Welcome, '+fakeUser.displayName+'! 🎉', 'success');
+    try {
+      const result = await signInWithPopup(auth, provider);
+      localStorage.removeItem('is_local_user');
+      window.__currentUser = result.user;
+      if(window.updateAuthUI) window.updateAuthUI(result.user);
+      if(window.showToast) window.showToast(`Welcome, ${result.user.displayName?.split(' ')[0]}! 🎉`, 'success');
+    } catch(error) {
+      console.log("Firebase popup failed, triggering custom modal fallback...", error);
+      if(!window.showJoinModal) return;
+      const { name, email } = await window.showJoinModal();
+      if(!name) return;
+      const fakeUser = {
+        displayName: name.trim(),
+        email: email.trim(),
+        photoURL: null,
+        uid: 'local_' + Date.now()
+      };
+      localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
+      window.__currentUser = fakeUser;
+      if(window.updateAuthUI) window.updateAuthUI(fakeUser);
+      if(window.showToast) window.showToast('Welcome, '+fakeUser.displayName+'! 🎉', 'success');
+    }
   };
+
   window.__logout = async () => {
     localStorage.removeItem('is_local_user');
     window.__currentUser = null;
+    try { await signOut(auth); } catch(e){}
     if(window.updateAuthUI) window.updateAuthUI(null);
+    if(window.showToast) window.showToast('Logged out successfully', 'success');
   };
-  const savedUser = localStorage.getItem('is_local_user');
-  if(savedUser) {
-    try {
-      window.__currentUser = JSON.parse(savedUser);
-      setTimeout(() => { if(window.updateAuthUI) window.updateAuthUI(window.__currentUser); }, 500);
-    } catch(e) {}
-  }
-  window.__logout_firebase = async () => { try { await signOut(auth); } catch(e) {} };
+
   const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
-  onSnapshot(q, snap => { window.__ideas=[]; snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); if(window.renderAll) window.renderAll(); });
-  window.__submitIdea = async idea => { const r = await addDoc(collection(db,"ideas"),{...idea,ts:{seconds:Math.floor(Date.now()/1000)},votes:0,downvotes:0,comments:[],reach:1,status:'Under Review',ownerEmail:window.__currentUser?.email||'',ownerName:window.__currentUser?.displayName||idea.author}); if(window.sendIdeaNotification) window.sendIdeaNotification(idea.title,window.__currentUser?.displayName||idea.author,window.__currentUser?.email||''); return r.id; };
+  onSnapshot(q, snap => { 
+    window.__ideas=[]; 
+    snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); 
+    if(window.renderAll) window.renderAll(); 
+  });
+
+  window.__submitIdea = async idea => { 
+    const r = await addDoc(collection(db,"ideas"),{
+      ...idea,
+      ts:{seconds:Math.floor(Date.now()/1000)},
+      votes:0,
+      downvotes:0,
+      comments:[],
+      reach:1,
+      status:'Under Review',
+      ownerEmail:window.__currentUser?.email||'',
+      ownerName:window.__currentUser?.displayName||idea.author
+    }); 
+    if(window.sendIdeaNotification) window.sendIdeaNotification(idea.title,window.__currentUser?.displayName||idea.author,window.__currentUser?.email||''); 
+    return r.id; 
+  };
+
   window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
   window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
-  window.__updateStatus = async (id,status) => { await updateDoc(doc(db,"ideas",id),{status}); };
+  
+  // SECURED Backend state configuration trigger
+  window.__updateStatus = async (id,status) => { 
+    const idea = (window.__ideas || []).find(i => i.id === id);
+    if (!idea) return;
+    if (window.__currentUser?.email === idea.ownerEmail || window.__currentUser?.email === 'ideaspherecontact0@gmail.com') {
+      await updateDoc(doc(db,"ideas",id),{status}); 
+    } else {
+      throw new Error("Unauthorized access configuration modification.");
+    }
+  };
+  
   window.__dbReady = true;
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-<script>(function(){emailjs.init("NX-Nh_CaDvJLi357V");window.__sendNotif=async(to,title,name,type)=>{if(!to)return;try{await emailjs.send("service_tlgp8gj","template_maj59l",{to_email:to,idea_title:title,name:name||"Someone",type,message:type==="vote"?`${name} upvoted your idea "${title}"!`:`${name} commented on "${title}"!`,email:"noreply@ideasphere.com",time:new Date().toLocaleString()});}catch(e){}};})();</script>
+<script>
+  (function(){
+    emailjs.init("NX-Nh_CaDvJLi357V");
+    // FIXED: Continuous Template ID Matching
+    window.__sendNotif=async(to,title,name,type)=>{
+      if(!to)return;
+      try{
+        await emailjs.send("service_tlgp8gj","template_maj59l",{
+          to_email:to,
+          idea_title:title,
+          name:name||"Someone",
+          type,
+          message:type==="vote"?`${name} upvoted your idea "${title}"!`:`${name} commented on "${title}"!`,
+          email:"noreply@ideasphere.com",
+          time:new Date().toLocaleString()
+        });
+      }catch(e){console.error(e);}
+    };
+  })();
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -84,7 +157,7 @@
   --r:12px;--r2:18px;
 }
 html{scroll-behavior:smooth}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:70px}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:90px}
 .nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;}
 .logo{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:7px;text-decoration:none;}
 .logo-dot{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#4ade80);display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;}
@@ -256,8 +329,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .toast{position:fixed;bottom:80px;right:1rem;z-index:200;background:var(--ink);color:#fff;padding:0.7rem 1rem;border-radius:9px;font-size:0.82rem;font-weight:500;transform:translateY(60px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:260px;box-shadow:var(--shadow2);}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{background:var(--green)}.toast.error{background:var(--red)}
-footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.1rem;font-size:0.75rem;}
+
+/* FIXED FOOTER POSITIONING GAP */
+footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.5rem 1.1rem 2.5rem;font-size:0.75rem;}
 footer span{color:#4ade80}
+footer a{color: rgba(255,255,255,0.6); text-decoration: none; margin: 0 5px;}
+footer a:hover {color: #fff;}
+
 /* JOIN MODAL */
 .join-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
 .join-overlay.show{opacity:1;pointer-events:all;}
@@ -280,126 +358,125 @@ footer span{color:#4ade80}
 </head>
 <body>
 
-<nav class="nav">
-  <a class="logo" href="#" onclick="return false">
-    <div class="logo-dot">🌍</div>IdeaSphere
-  </a>
-  <div class="nav-right">
-    <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
-    <div id="auth-nav">
-      <button class="login-btn-nav" onclick="loginGoogle()">
-        <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
-      </button>
+  <nav class="nav">
+    <a class="logo" href="#" onclick="return false">
+      <div class="logo-dot">🌍</div>IdeaSphere
+    </a>
+    <div class="nav-right">
+      <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
+      <div id="auth-nav">
+        <button class="login-btn-nav" onclick="loginGoogle()">
+          <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
+        </button>
+      </div>
     </div>
-    <button class="nav-btn" onclick="showTab('submit');scrollToTop()">+ Idea</button>
-  </div>
-</nav>
+  </nav>
 
-<section class="hero">
-  <div class="hero-inner">
-    <div class="hero-pill">🌱 Open Platform · 87 Countries · Free Forever</div>
-    <h1>Where <em>Community</em><br>Ideas Change the World</h1>
-    <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
-    <div class="hero-cta">
-      <button class="btn-hp" onclick="showTab('submit')">Share Your Idea</button>
-      <button class="btn-hs" onclick="showTab('explore')">Explore Ideas ↓</button>
+  <div id="tab-feed" class="page-tab active">
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-pill">🌱 Open Platform · Free Forever</div>
+        <h1>Where <em>Community</em><br>Ideas Change the World</h1>
+        <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
+        <div class="hero-cta">
+          <button class="btn-hp" onclick="switchTab('submit')">💡 Share Your Idea</button>
+          <button class="btn-hs" onclick="document.getElementById('feed-start').scrollIntoView()">Browse Feed</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="stats-bar">
+      <div class="stat-item"><div class="stat-n" id="stat-ideas-ui">0</div><div class="stat-l">Ideas</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-countries-ui">0</div><div class="stat-l">Countries</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-votes-ui">0</div><div class="stat-l">Votes</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-implemented-ui">0</div><div class="stat-l">Implemented</div></div>
     </div>
-  </div>
-</section>
 
-<div class="stats-bar">
-  <div class="stat-item"><div class="stat-n" id="stat-total">...</div><div class="stat-l">Ideas</div></div>
-  <div class="stat-item"><div class="stat-n">87</div><div class="stat-l">Countries</div></div>
-  <div class="stat-item"><div class="stat-n" id="stat-votes">...</div><div class="stat-l">Votes</div></div>
-  <div class="stat-item"><div class="stat-n">34</div><div class="stat-l">Implemented</div></div>
-</div>
+    <div class="page" id="feed-start">
+      <div class="layout">
+        <main>
+          <div class="search-panel">
+            <div class="search-panel-title">🔍 Advanced Search</div>
+            <div class="search-grid">
+              <input type="text" id="s-query" class="s-inp search-full" placeholder="Search keywords, title, or author..." oninput="renderFeed()">
+              <select id="s-cat" class="s-sel" onchange="renderFeed()">
+                <option value="">All Categories</option>
+                <option value="environment">🌿 Environment</option>
+                <option value="education">📚 Education</option>
+                <option value="health">❤️ Health</option>
+                <option value="tech">💻 Technology</option>
+                <option value="social">🤝 Social</option>
+                <option value="food">🌾 Food & Agriculture</option>
+              </select>
+              <select id="s-status" class="s-sel" onchange="renderFeed()">
+                <option value="">All Statuses</option>
+                <option value="Under Review">Under Review</option>
+                <option value="Approved">Approved</option>
+                <option value="Implemented">Implemented</option>
+              </select>
+            </div>
+          </div>
 
-<div class="page">
-  <div class="page-tab active" id="tab-explore">
-    <div class="layout">
-      <div>
-        <div class="search-panel">
-          <div class="search-panel-title">🔍 Advanced Search</div>
-          <div class="search-grid">
-            <input class="s-inp search-full" id="s-keyword" placeholder="Keywords, title, description…" oninput="doSearch()">
-            <select class="s-sel" id="s-cat" onchange="doSearch()">
-              <option value="">All Categories</option>
-              <option value="environment">🌿 Environment</option>
-              <option value="education">📚 Education</option>
-              <option value="health">❤️ Health</option>
-              <option value="tech">💻 Technology</option>
-              <option value="social">🤝 Social</option>
-              <option value="food">🌾 Food & Agriculture</option>
-            </select>
-            <input class="s-inp" id="s-country" placeholder="Country…" oninput="doSearch()">
-            <select class="s-sel" id="s-status" onchange="doSearch()">
-              <option value="">All Statuses</option>
-              <option value="Under Review">Under Review</option>
-              <option value="Approved">Approved</option>
-              <option value="Implemented">Implemented</option>
-            </select>
-            <select class="s-sel" id="s-sort" onchange="doSearch()">
+          <div class="feed-head">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="feed-title">Community Ideas</div>
+              <div class="feed-count" id="feed-count-ui">0 ideas</div>
+            </div>
+            <select id="feed-sort" class="sort-sel" onchange="renderFeed()">
               <option value="newest">Newest First</option>
               <option value="votes">Most Voted</option>
               <option value="comments">Most Discussed</option>
               <option value="score">Best Score</option>
             </select>
-            <div style="display:flex;gap:0.5rem;">
-              <button class="search-btn" onclick="doSearch()">Search</button>
-              <button class="clear-btn" onclick="clearSearch()">Clear</button>
-            </div>
           </div>
-        </div>
-        <div class="feed-head">
-          <div class="feed-title">Community Ideas</div>
-          <div class="feed-count" id="feed-count"></div>
-        </div>
-        <div class="ideas-feed" id="ideas-feed"><div class="empty"><div class="empty-icon">⏳</div><p>Loading ideas...</p></div></div>
-        <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMore()">Load more ↓</button>
-      </div>
-      <div class="sidebar">
-        <div class="s-card">
-          <div class="s-title">👤 Account</div>
-          <div id="login-card-content">
+
+          <div id="ideas-container" class="ideas-feed">
+            <div class="empty"><p>Loading ideas from live network...</p></div>
+          </div>
+          <button id="load-more-btn" class="load-more-btn" style="display:none" onclick="loadMore()">Load More Ideas</button>
+        </main>
+
+        <aside class="sidebar">
+          <div class="s-card" id="sidebar-profile-card">
+            <div class="s-title">👤 Account</div>
             <p class="login-sub">Login to submit ideas & get notifications!</p>
             <button class="google-login-btn" onclick="loginGoogle()">
-              <img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google
+              <img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google
             </button>
           </div>
-        </div>
-        <div class="s-card">
-          <div class="s-title">🔥 Trending Topics</div>
-          <div class="trend-list" id="trend-list"></div>
-        </div>
-        <div class="s-card">
-          <div class="s-title">🌐 Top Countries</div>
-          <div class="country-list" id="country-list"></div>
-        </div>
+          <div class="s-card">
+            <div class="s-title">🔥 Trending Topics</div>
+            <div id="trending-container" class="trend-list"></div>
+          </div>
+          <div class="s-card">
+            <div class="s-title">🌐 Top Countries</div>
+            <div id="countries-container" class="country-list"></div>
+          </div>
+        </aside>
       </div>
     </div>
   </div>
 
-  <div class="page-tab" id="tab-submit">
-    <div style="max-width:600px;margin:0 auto;">
-      <div class="s-card">
-        <div class="s-title" style="font-size:1.1rem;padding-bottom:0.75rem;margin-bottom:1rem;">💡 Share Your Idea with the World</div>
-        <div id="notif-info" style="background:var(--green-bg);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:var(--green);margin-bottom:1rem;display:none;">🔔 You'll get email notifications when people interact with your idea!</div>
-        <div class="form">
+  <div id="tab-submit" class="page-tab">
+    <div class="page" style="max-width:560px">
+      <div class="s-card" style="padding:1.5rem">
+        <div class="s-title" style="font-size:1.1rem;margin-bottom:4px">💡 Share Your Idea with the World</div>
+        <p style="font-size:0.75rem;color:var(--muted);margin-bottom:1.25rem">You'll get real-time tracking when people interact with your submission!</p>
+        
+        <form class="form" onsubmit="handleFormSubmit(event)">
           <div>
-            <label class="f-label">Idea Title *</label>
-            <input class="f-inp" id="f-title" maxlength="100" oninput="updateCC('f-title','tc-title',100)" placeholder="A clear, catchy name…">
-            <div class="char-count" id="tc-title">0 / 100</div>
-            <div class="form-error" id="err-title"></div>
+            <label class="f-label">Title</label>
+            <input type="text" id="f-title" class="f-inp" placeholder="What's your solution's name?" maxlength="100" oninput="countChar('f-title','c-title',100)" required>
+            <div class="char-count" id="c-title">0 / 100</div>
           </div>
           <div>
-            <label class="f-label">Description *</label>
-            <textarea class="f-ta" id="f-desc" maxlength="600" oninput="updateCC('f-desc','tc-desc',600)" placeholder="What problem does it solve? How would it work? Who benefits?"></textarea>
-            <div class="char-count" id="tc-desc">0 / 600</div>
-            <div class="form-error" id="err-desc"></div>
+            <label class="f-label">Description</label>
+            <textarea id="f-desc" class="f-ta" placeholder="Explain your concept, how it helps people, and implementation details..." maxlength="600" oninput="countChar('f-desc','c-desc',600)" required></textarea>
+            <div class="char-count" id="c-desc">0 / 600</div>
           </div>
           <div>
-            <label class="f-label">Category *</label>
-            <select class="f-sel" id="f-cat">
+            <label class="f-label">Category</label>
+            <select id="f-cat" class="f-sel" required>
               <option value="">Choose a category…</option>
               <option value="environment">🌿 Environment</option>
               <option value="education">📚 Education</option>
@@ -408,552 +485,547 @@ footer span{color:#4ade80}
               <option value="social">🤝 Social</option>
               <option value="food">🌾 Food & Agriculture</option>
             </select>
-            <div class="form-error" id="err-cat"></div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
             <div>
               <label class="f-label">Your Name</label>
-              <input class="f-inp" id="f-author" maxlength="50" placeholder="Name or anonymous">
+              <input type="text" id="f-author" class="f-inp" placeholder="Anonymous" maxlength="40">
             </div>
             <div>
               <label class="f-label">Country</label>
-              <select class="f-inp" id="f-country" style="cursor:pointer;">
+              <select id="f-country" class="f-sel" required>
                 <option value="">🌍 Select Country...</option>
-                <option value="Afghanistan">🇦🇫 Afghanistan</option>
-                <option value="Argentina">🇦🇷 Argentina</option>
-                <option value="Australia">🇦🇺 Australia</option>
-                <option value="Bangladesh">🇧🇩 Bangladesh</option>
-                <option value="Brazil">🇧🇷 Brazil</option>
-                <option value="Canada">🇨🇦 Canada</option>
-                <option value="China">🇨🇳 China</option>
-                <option value="Egypt">🇪🇬 Egypt</option>
-                <option value="France">🇫🇷 France</option>
-                <option value="Germany">🇩🇪 Germany</option>
-                <option value="Ghana">🇬🇭 Ghana</option>
                 <option value="India">🇮🇳 India</option>
-                <option value="Indonesia">🇮🇩 Indonesia</option>
-                <option value="Italy">🇮🇹 Italy</option>
-                <option value="Japan">🇯🇵 Japan</option>
-                <option value="Kenya">🇰🇪 Kenya</option>
-                <option value="Malaysia">🇲🇾 Malaysia</option>
-                <option value="Mexico">🇲🇽 Mexico</option>
-                <option value="Morocco">🇲🇦 Morocco</option>
-                <option value="Nepal">🇳🇵 Nepal</option>
-                <option value="Nigeria">🇳🇬 Nigeria</option>
-                <option value="Pakistan">🇵🇰 Pakistan</option>
-                <option value="Philippines">🇵🇭 Philippines</option>
-                <option value="Russia">🇷🇺 Russia</option>
-                <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
-                <option value="South Africa">🇿🇦 South Africa</option>
-                <option value="South Korea">🇰🇷 South Korea</option>
-                <option value="Spain">🇪🇸 Spain</option>
-                <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
-                <option value="Turkey">🇹🇷 Turkey</option>
-                <option value="Ukraine">🇺🇦 Ukraine</option>
-                <option value="United Arab Emirates">🇦🇪 United Arab Emirates</option>
-                <option value="United Kingdom">🇬🇧 United Kingdom</option>
                 <option value="United States">🇺🇸 United States</option>
-                <option value="Vietnam">🇻🇳 Vietnam</option>
-                <option value="Other">🌍 Other</option>
+                <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                <option value="Australia">🇦🇺 Australia</option>
+                <option value="Canada">🇨🇦 Canada</option>
+                <option value="Pakistan">🇵🇰 Pakistan</option>
+                <option value="Bangladesh">🇧🇩 Bangladesh</option>
+                <option value="Germany">🇩🇪 Germany</option>
+                <option value="France">🇫🇷 France</option>
+                <option value="Other">🌍 Other Location</option>
               </select>
             </div>
           </div>
-          <button class="submit-btn" type="button" onclick="submitIdea()" id="submit-btn">🚀 Submit Idea</button>
-          <a class="wa-sidebar-btn" href="#" onclick="shareWebsite();return false;">📲 Share IdeaSphere on WhatsApp</a>
-        </div>
+          <div id="form-error-ui" class="form-error"></div>
+          <button type="submit" id="form-sub-btn" class="submit-btn" style="margin-top:0.4rem">Publish Idea 🚀</button>
+        </form>
+        <a href="https://api.whatsapp.com/send?text=Hey! Check out IdeaSphere, a global platform to share and scale community solutions: https://ideasphere-debug.github.io/ideasphere/" target="_blank" class="wa-sidebar-btn">📲 Share IdeaSphere on WhatsApp</a>
       </div>
     </div>
   </div>
 
-  <div class="page-tab" id="tab-leaderboard">
-    <div class="lb-section">
-      <div class="lb-title">🏆 Top Ideas</div>
-      <div id="lb-ideas"></div>
-    </div>
-    <div class="lb-section">
-      <div class="lb-title">🌟 Top Contributors</div>
-      <div id="lb-contributors"></div>
+  <div id="tab-leaderboard" class="page-tab">
+    <div class="page">
+      <div class="lb-section">
+        <div class="lb-title">🏆 Top Ideas</div>
+        <div id="lb-ideas" class="lb-grid"></div>
+      </div>
+      <div class="lb-section">
+        <div class="lb-title">🌟 Top Contributors</div>
+        <div id="lb-users" class="lb-grid"></div>
+      </div>
     </div>
   </div>
 
-  <div class="page-tab" id="tab-profile">
-    <div style="max-width:500px;margin:0 auto;">
-      <div class="s-card" id="profile-content">
+  <div id="tab-profile" class="page-tab">
+    <div class="page" style="max-width:600px">
+      <div class="s-card" id="profile-page-card">
         <div class="s-title">👤 Your Profile</div>
-        <div style="text-align:center;padding:1rem 0">
-          <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile and ideas!</p>
-          <button class="google-login-btn" onclick="loginGoogle()">
-            <img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google
-          </button>
-        </div>
+        <p class="login-sub">Sign in to see your profile metrics and active pipeline data tracking!</p>
       </div>
     </div>
   </div>
-</div>
 
-<nav class="bottom-nav">
-  <button class="bn-item active" id="bn-explore" onclick="showTab('explore')">
-    <span class="bn-icon">🔍</span>Explore
-  </button>
-  <button class="bn-item" id="bn-submit" onclick="showTab('submit')">
-    <span class="bn-icon">💡</span>Share
-  </button>
-  <button class="bn-item" id="bn-leaderboard" onclick="showTab('leaderboard')">
-    <span class="bn-icon">🏆</span>Leaderboard
-  </button>
-  <button class="bn-item" id="bn-profile" onclick="showTab('profile')">
-    <span class="bn-icon">👤</span>Profile
-  </button>
-</nav>
+  <nav class="bottom-nav">
+    <button class="bn-item active" onclick="switchTab('feed')"><div class="bn-icon">🌍</div>Feed</button>
+    <button class="bn-item" onclick="switchTab('submit')"><div class="bn-icon">💡</div>Share</button>
+    <button class="bn-item" onclick="switchTab('leaderboard')"><div class="bn-icon">🏆</div>Leaderboard</button>
+    <button class="bn-item" onclick="switchTab('profile')"><div class="bn-icon">👤</div>Profile</button>
+  </nav>
 
-<div class="overlay" id="overlay" onclick="overlayClick(event)">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal()">✕</button>
-    <div class="modal-hero">
-      <div class="modal-tags" id="m-tags"></div>
-      <div class="modal-title" id="m-title"></div>
-      <div class="modal-desc" id="m-desc"></div>
-    </div>
-    <div class="modal-body">
-      <div class="modal-stats">
-        <div class="m-stat"><div class="m-stat-n" id="m-votes">0</div><div class="m-stat-l">Upvotes</div></div>
-        <div class="m-stat"><div class="m-stat-n" id="m-cmts">0</div><div class="m-stat-l">Comments</div></div>
-        <div class="m-stat"><div class="m-stat-n" id="m-score">0</div><div class="m-stat-l">Net Score</div></div>
+  <div id="modal-overlay" class="overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeModal(null)">✕</button>
+      <div class="modal-hero">
+        <div id="m-tags" class="modal-tags"></div>
+        <h2 id="m-title" class="modal-title">Idea Details</h2>
+        <p id="m-desc" class="modal-desc"></p>
       </div>
-      <div class="modal-author">
-        <div class="avatar" id="m-avatar"></div>
-        <div>
-          <div class="modal-author-name" id="m-author-name"></div>
-          <div class="modal-author-sub" id="m-author-sub"></div>
+      <div class="modal-body">
+        <div class="modal-stats">
+          <div class="m-stat"><div id="m-stat-votes" class="m-stat-n">0</div><div class="m-stat-l">Upvotes</div></div>
+          <div class="m-stat"><div id="m-stat-cmts" class="m-stat-n">0</div><div class="m-stat-l">Comments</div></div>
+          <div class="m-stat"><div id="m-stat-score" class="m-stat-n">0</div><div class="m-stat-l">Net Score</div></div>
         </div>
-      </div>
-      <div class="status-selector" id="status-selector" style="display:none">
-        <span class="status-sel-label">📊 Update Status (Admin)</span>
-        <select class="status-sel" id="status-sel" onchange="updateIdeaStatus()">
-          <option value="Under Review">🔄 Under Review</option>
-          <option value="Approved">✅ Approved</option>
-          <option value="Implemented">🚀 Implemented</option>
-          <option value="Rejected">❌ Rejected</option>
-        </select>
-        <div class="admin-note">Only visible to idea owner</div>
-      </div>
-      <div class="modal-actions">
-        <button class="m-vote-btn" id="m-vote-btn" onclick="voteFromModal('votes')">▲ Upvote</button>
-        <button class="m-dn-btn" id="m-dn-btn" onclick="voteFromModal('downvotes')">▼ Downvote</button>
-        <a class="m-wa-btn" id="m-wa-btn" href="#" onclick="shareIdeaWA();return false;">📲 Share</a>
-        <button onclick="closeModal()">Close</button>
-      </div>
-      <div class="comments-section">
-        <div class="comments-title" id="cmts-title">Comments</div>
-        <div class="comment-box">
-          <input class="comment-input" id="cmt-input" placeholder="Add a comment…" maxlength="300" onkeydown="if(event.key==='Enter')addComment()">
-          <button class="comment-submit" onclick="addComment()">Post</button>
-        </div>
-        <div class="comment-list" id="cmt-list"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<!-- JOIN MODAL -->
-<div class="join-overlay" id="join-modal">
-  <div class="join-box">
-    <div style="font-size:36px;text-align:center;margin-bottom:8px;">🌍</div>
-    <div class="join-title">Join IdeaSphere</div>
-    <div class="join-sub">Share ideas with 87+ countries &middot; Free Forever</div>
-    <label class="join-label">Your Name *</label>
-    <input class="join-input" id="join-name" type="text" placeholder="e.g. Harshit Upadhyay" maxlength="50" autocomplete="name"/>
-    <label class="join-label">Email <span style="color:rgba(255,255,255,0.35);font-weight:400;">(for notifications)</span></label>
-    <input class="join-input" id="join-email" type="email" placeholder="your@email.com" autocomplete="email"/>
-    <button class="join-btn" onclick="joinDone()">Join IdeaSphere &rarr;</button>
-    <button class="join-skip" onclick="joinSkip()">Skip for now</button>
-  </div>
-</div>
-<div class="notif-toast" id="notif-toast"></div>
-
-<footer>
-  Made with ♥ for the world &nbsp;·&nbsp; IdeaSphere &copy; 2026
-  &nbsp;·&nbsp; <a href="./about.html" style="color:#4ade80;text-decoration:none;">About Us</a>
-  &nbsp;·&nbsp; <a href="./privacy.html" style="color:#4ade80;text-decoration:none;">Privacy Policy</a>
-  &nbsp;·&nbsp; <a href="./terms.html" style="color:#4ade80;text-decoration:none;">Terms of Use</a>
-  &nbsp;·&nbsp; <a href="mailto:ideaspherecontact0@gmail.com" style="color:#4ade80;text-decoration:none;">Contact</a>
-</footer>
-
-<script>
-const CAT_META = {
-  environment:{ label:'Environment', emoji:'🌿', tagClass:'tag-env', color:'#16a34a', dotColor:'#22c55e' },
-  education:  { label:'Education',   emoji:'📚', tagClass:'tag-edu', color:'#2563eb', dotColor:'#3b82f6' },
-  health:     { label:'Health',      emoji:'❤️',  tagClass:'tag-health',color:'#dc2626',dotColor:'#ef4444' },
-  tech:       { label:'Technology',  emoji:'💻', tagClass:'tag-tech', color:'#d97706', dotColor:'#f59e0b' },
-  social:     { label:'Social',      emoji:'🤝', tagClass:'tag-social',color:'#7c3aed',dotColor:'#8b5cf6' },
-  food:       { label:'Food & Agri', emoji:'🌾', tagClass:'tag-food', color:'#0d9488', dotColor:'#14b8a6' },
-};
-const AV_COLORS=['#16a34a','#2563eb','#dc2626','#d97706','#7c3aed','#0d9488'];
-const STATUS_CLASS = {'Under Review':'status-review','Approved':'status-approved','Implemented':'status-implemented','Rejected':'status-rejected'};
-const STATUS_EMOJI = {'Under Review':'🔄','Approved':'✅','Implemented':'🚀','Rejected':'❌'};
-function getAC(n){let h=0;for(let c of n||'?')h=(h*31+c.charCodeAt(0))&0xffff;return AV_COLORS[h%AV_COLORS.length];}
-function ini(n){return(n||'?').split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase()||'??';}
-function timeAgo(ts){if(!ts)return'now';const s=Math.floor((Date.now()-(ts.seconds?ts.seconds*1000:ts))/1000);if(s<60)return'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
-
-let state = {
-  filter:'all', search:'', sort:'newest', modalId:null, page:1,
-  votedUp: new Set(JSON.parse(localStorage.getItem('is_voted_up')||'[]')),
-  votedDn: new Set(JSON.parse(localStorage.getItem('is_voted_dn')||'[]')),
-  currentTab: 'explore'
-};
-window.__ideas = [];
-
-// JOIN MODAL
-let _joinResolve = null;
-window.showJoinModal = function(){
-  return new Promise(r => {
-    _joinResolve = r;
-    document.getElementById('join-modal').classList.add('show');
-    setTimeout(()=>{ const i=document.getElementById('join-name'); if(i)i.focus(); }, 280);
-  });
-};
-function joinDone(){
-  const n = document.getElementById('join-name');
-  const e = document.getElementById('join-email');
-  const name = n.value.trim();
-  const email = e.value.trim();
-  if(!name){ n.classList.add('error'); n.placeholder='Name required!'; n.focus(); return; }
-  n.classList.remove('error');
-  document.getElementById('join-modal').classList.remove('show');
-  if(_joinResolve) _joinResolve({name, email});
-}
-function joinSkip(){
-  document.getElementById('join-modal').classList.remove('show');
-  if(_joinResolve) _joinResolve({name:'Anonymous', email:''});
-}
-document.addEventListener('keydown', e => {
-  if(e.key==='Enter' && document.getElementById('join-modal').classList.contains('show')) joinDone();
-});
-
-// NOTIFICATION
-window.sendIdeaNotification = function(title, name, email){
-  const t = document.getElementById('notif-toast');
-  if(t){ t.textContent='🎉 Idea submitted! Live in 87 countries!'; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4000); }
-  if(!email || typeof emailjs==='undefined') return;
-  emailjs.send('service_tlgp8gj','template_maj591',{
-    to_name: name||'User', to_email: email,
-    idea_title: title||'Your Idea',
-    platform_name: 'IdeaSphere',
-    idea_url: 'https://ideasphere-debug.github.io/ideasphere',
-    from_name: 'IdeaSphere Team'
-  },'NX-Nh_CaDvJLi357V').catch(e=>console.warn('EmailJS:',e));
-};
-
-function showTab(tab) {
-  state.currentTab = tab;
-  document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.bn-item').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+tab).classList.add('active');
-  document.getElementById('bn-'+tab).classList.add('active');
-  if(tab==='leaderboard') renderLeaderboard();
-  if(tab==='profile') renderProfile();
-  window.scrollTo(0,0);
-}
-function scrollToTop(){ window.scrollTo({top:0,behavior:'smooth'}); }
-
-window.updateAuthUI = function(user) {
-  const authNav = document.getElementById('auth-nav');
-  const lcc = document.getElementById('login-card-content');
-  const ni = document.getElementById('notif-info');
-  if(user) {
-    authNav.innerHTML = `<div class="user-nav"><img class="user-nav-img" src="${user.photoURL||''}" onerror="this.style.display='none'"><span class="user-nav-name">${user.displayName?.split(' ')[0]||'User'}</span><button class="logout-btn" onclick="logoutUser()">Out</button></div>`;
-    lcc.innerHTML = `<div class="user-profile-card"><img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'"><div><div class="user-profile-name">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div></div><a class="logout-link" onclick="logoutUser()">Sign out</a>`;
-    if(!document.getElementById('f-author').value) document.getElementById('f-author').value = user.displayName||'';
-    if(ni) ni.style.display='block';
-  } else {
-    authNav.innerHTML = `<button class="login-btn-nav" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In</button>`;
-    lcc.innerHTML = `<p class="login-sub">Login to submit ideas & get notifications!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button>`;
-    if(ni) ni.style.display='none';
-  }
-}
-
-async function loginGoogle(){ if(window.__loginGoogle) await window.__loginGoogle(); }
-async function logoutUser(){ if(window.__logout) await window.__logout(); showToast('Signed out.',''); }
-
-function doSearch(){
-  state.page=1;
-  state.keyword = document.getElementById('s-keyword').value.toLowerCase();
-  state.catF = document.getElementById('s-cat').value;
-  state.countryF = document.getElementById('s-country').value.toLowerCase();
-  state.statusF = document.getElementById('s-status').value;
-  state.sort = document.getElementById('s-sort').value;
-  renderFeed();
-}
-function clearSearch(){
-  ['s-keyword','s-country'].forEach(id=>document.getElementById(id).value='');
-  ['s-cat','s-status'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('s-sort').value='newest';
-  state.keyword=''; state.catF=''; state.countryF=''; state.statusF=''; state.sort='newest';
-  state.page=1; renderFeed();
-}
-
-function getFiltered(){
-  let list=[...(window.__ideas||[])];
-  if(state.catF) list=list.filter(i=>i.category===state.catF);
-  if(state.statusF) list=list.filter(i=>(i.status||'Under Review')===state.statusF);
-  if(state.keyword){const q=state.keyword;list=list.filter(i=>(i.title||'').toLowerCase().includes(q)||(i.desc||'').toLowerCase().includes(q)||(i.author||'').toLowerCase().includes(q));}
-  if(state.countryF){const q=state.countryF;list=list.filter(i=>(i.country||'').toLowerCase().includes(q));}
-  const sort=state.sort||'newest';
-  if(sort==='votes') list.sort((a,b)=>(b.votes||0)-(a.votes||0));
-  else if(sort==='comments') list.sort((a,b)=>(b.comments||[]).length-(a.comments||[]).length);
-  else if(sort==='score') list.sort((a,b)=>((b.votes||0)-(b.downvotes||0))-((a.votes||0)-(a.downvotes||0)));
-  else list.sort((a,b)=>(b.ts?.seconds||0)-(a.ts?.seconds||0));
-  return list;
-}
-
-window.renderAll = function(){ renderFeed(); renderSidebar(); updateStats(); if(state.currentTab==='leaderboard') renderLeaderboard(); if(state.currentTab==='profile') renderProfile(); }
-
-window.renderFeed = function(){
-  const filtered=getFiltered();
-  const total=filtered.length;
-  const visible=filtered.slice(0,state.page*6);
-  const el=document.getElementById('ideas-feed');
-  const lm=document.getElementById('load-more-btn');
-  document.getElementById('feed-count').textContent=total?total+' idea'+(total!==1?'s':''):'';
-  if(!total){el.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><p>No ideas found. Try different filters!</p></div>';lm.style.display='none';return;}
-  const cue = window.__currentUser?.email;
-  el.innerHTML=visible.map((idea,i)=>{
-    const cm=CAT_META[idea.category]||CAT_META.social;
-    const av=getAC(idea.author||'?');
-    const isNew=(idea.ts?.seconds&&(Date.now()/1000-idea.ts.seconds)<86400);
-    const isMine=cue&&idea.ownerEmail===cue;
-    const votedU=state.votedUp.has(idea.id);
-    const votedD=state.votedDn.has(idea.id);
-    const score=(idea.votes||0)-(idea.downvotes||0);
-    const status=idea.status||'Under Review';
-    const waMsg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,100)}...\n\n🌍 IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
-    return `<div class="idea-card" style="animation-delay:${Math.min(i,5)*0.05}s" onclick="openModal('${idea.id}')">
-      <div class="card-head">
-        <div class="vote-col" onclick="event.stopPropagation()">
-          <button class="vote-up${votedU?' voted':''}" onclick="toggleVote('${idea.id}','votes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▲</button>
-          <span class="vote-score${score>0?' positive':score<0?' negative':''}">${score}</span>
-          <button class="vote-dn${votedD?' downed':''}" onclick="toggleVote('${idea.id}','downvotes','${esc(idea.title)}','${esc(idea.ownerEmail||'')}','${esc(idea.ownerName||idea.author||'')}')">▼</button>
-        </div>
-        <div class="card-body">
-          <div class="card-tags">
-            <span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span>
-            <span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]||'🔄'} ${status}</span>
-            ${isNew?'<span class="tag tag-new">✨ New</span>':''}
-            ${isMine?'<span class="tag tag-mine">👤 Mine</span>':''}
+        <div class="modal-author">
+          <div id="m-avatar" class="avatar"></div>
+          <div>
+            <div id="m-auth-name" class="modal-author-name"></div>
+            <div id="m-auth-sub" class="modal-author-sub"></div>
           </div>
-          <div class="card-title">${esc(idea.title)}</div>
-          <div class="card-desc">${esc(idea.desc)}</div>
+        </div>
+        
+        <div id="m-admin-panel" class="status-selector" style="display:none">
+          <span class="status-sel-label">📊 Update Status (Owner/Admin Only)</span>
+          <select id="m-status-select" class="status-sel" onchange="changeIdeaStatus()">
+            <option value="Under Review">🔄 Under Review</option>
+            <option value="Approved">✅ Approved</option>
+            <option value="Implemented">🚀 Implemented</option>
+            <option value="Rejected">❌ Rejected</option>
+          </select>
+          <div class="admin-note">Changes update instantly across global endpoints.</div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="m-btn-vote" onclick="modalVote('votes')">🔼 Upvote</button>
+          <button id="m-btn-down" class="m-dn-btn" onclick="modalVote('downvotes')">🔽 Downvote</button>
+          <a id="m-btn-wa" class="m-wa-btn" href="#" target="_blank">📲 Share</a>
+        </div>
+        
+        <div class="comments-section">
+          <div class="comments-title">Comments</div>
+          <div class="comment-box">
+            <input type="text" id="cmt-input" class="comment-input" placeholder="Write a constructive response..." maxlength="250">
+            <button class="comment-submit" onclick="addComment()">Post</button>
+          </div>
+          <div id="modal-comments-list" class="comment-list"></div>
         </div>
       </div>
-      <div class="card-foot">
-        <div class="author-row">
-          <div class="avatar" style="background:${av}">${ini(idea.author||'?')}</div>
-          <span class="author-name">${esc(idea.author||'Anonymous')}</span>
-          ${idea.country?`<span class="author-name">${idea.flag||'🌍'} ${esc(idea.country)}</span>`:''}
-          <span class="author-name">· ${timeAgo(idea.ts)}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:0.5rem;">
-          <span class="meta-chip">💬 ${(idea.comments||[]).length}</span>
-          <a href="https://wa.me/?text=${waMsg}" target="_blank" class="wa-btn" onclick="event.stopPropagation()">📲 Share</a>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-  lm.style.display=visible.length<total?'block':'none';
-}
-
-window.updateStats = function(){
-  const ideas=window.__ideas||[];
-  document.getElementById('stat-total').textContent=ideas.length.toLocaleString();
-  document.getElementById('stat-votes').textContent=ideas.reduce((s,i)=>s+(i.votes||0),0).toLocaleString();
-}
-
-window.renderSidebar = function(){
-  const TOPICS=[{n:'Clean Water',c:142},{n:'Rural Education',c:118},{n:'Plastic-Free',c:97},{n:'Mental Health',c:83},{n:'Solar Energy',c:71},{n:'Food Security',c:65}];
-  document.getElementById('trend-list').innerHTML=TOPICS.map(t=>`<div class="trend-item" onclick="document.getElementById('s-keyword').value='${t.n.split(' ')[0]}';doSearch();showTab('explore')"><span class="trend-name">${t.n}</span><span class="trend-count">${t.c}</span></div>`).join('');
-  const COUNTRIES=[{flag:'🇮🇳',name:'India',pct:85},{flag:'🇧🇷',name:'Brazil',pct:68},{flag:'🇳🇬',name:'Nigeria',pct:56},{flag:'🇺🇸',name:'USA',pct:49},{flag:'🇬🇭',name:'Ghana',pct:42},{flag:'🇵🇰',name:'Pakistan',pct:35}];
-  document.getElementById('country-list').innerHTML=COUNTRIES.map(c=>`<div class="country-row"><span class="c-flag">${c.flag}</span><span class="c-name">${c.name}</span><div class="c-bar-bg"><div class="c-bar" style="width:${c.pct}%"></div></div></div>`).join('');
-}
-
-function renderLeaderboard(){
-  const ideas=window.__ideas||[];
-  const topIdeas=[...ideas].sort((a,b)=>((b.votes||0)-(b.downvotes||0))-((a.votes||0)-(a.downvotes||0))).slice(0,8);
-  document.getElementById('lb-ideas').innerHTML=`<div class="lb-card">${topIdeas.map((idea,i)=>{
-    const score=(idea.votes||0)-(idea.downvotes||0);
-    const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
-    return `<div class="lb-item" onclick="openModal('${idea.id}')" style="cursor:pointer">
-      <div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
-      <div class="lb-info"><div class="lb-name">${esc(idea.title)}</div><div class="lb-sub">${esc(idea.author||'Anonymous')} · ${idea.flag||'🌍'} ${esc(idea.country||'')}</div></div>
-      <div class="lb-score">${score>0?'+':''}${score}</div>
-    </div>`;
-  }).join('')}</div>`;
-  const contribs={};
-  ideas.forEach(i=>{ const k=i.ownerEmail||i.author||'Anonymous'; if(!contribs[k]) contribs[k]={name:i.ownerName||i.author||'Anonymous',flag:i.flag||'🌍',country:i.country||'',ideas:0,votes:0}; contribs[k].ideas++; contribs[k].votes+=(i.votes||0); });
-  const topContribs=Object.values(contribs).sort((a,b)=>b.votes-a.votes).slice(0,8);
-  document.getElementById('lb-contributors').innerHTML=`<div class="lb-card">${topContribs.map((c,i)=>{
-    const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
-    return `<div class="lb-item"><div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div><div class="lb-info"><div class="lb-name">${esc(c.name)}</div><div class="lb-sub">${c.flag} ${esc(c.country)} · ${c.ideas} idea${c.ideas!==1?'s':''}</div></div><div class="lb-score">👍 ${c.votes}</div></div>`;
-  }).join('')}</div>`;
-}
-
-function renderProfile(){
-  const user=window.__currentUser;
-  const pc=document.getElementById('profile-content');
-  if(!user){pc.innerHTML='<div class="s-title">👤 Your Profile</div><div style="text-align:center;padding:1rem 0"><p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Sign in to see your profile!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="15" height="15"> Continue with Google</button></div>';return;}
-  const myIdeas=(window.__ideas||[]).filter(i=>i.ownerEmail===user.email);
-  const totalVotes=myIdeas.reduce((s,i)=>s+(i.votes||0),0);
-  pc.innerHTML=`<div class="s-title">👤 Your Profile</div>
-    <div class="user-profile-card" style="margin-bottom:1rem;"><img class="user-profile-img" src="${user.photoURL||''}" onerror="this.style.display='none'" style="width:50px;height:50px;"><div><div class="user-profile-name" style="font-size:1rem;">${user.displayName||'User'}</div><div class="user-profile-email">${user.email||''}</div></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
-      <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Ideas</div></div>
-      <div class="m-stat"><div class="m-stat-n">${totalVotes}</div><div class="m-stat-l">Votes Got</div></div>
-      <div class="m-stat"><div class="m-stat-n">${myIdeas.filter(i=>i.status==='Implemented').length}</div><div class="m-stat-l">Implemented</div></div>
     </div>
-    <div style="font-family:'Fraunces',serif;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem;">Your Ideas</div>
-    ${myIdeas.length?myIdeas.map(idea=>{ const status=idea.status||'Under Review'; return `<div style="padding:0.65rem;background:var(--cream);border-radius:8px;margin-bottom:0.5rem;cursor:pointer;" onclick="openModal('${idea.id}')"><div style="font-size:0.82rem;font-weight:600;margin-bottom:3px;">${esc(idea.title)}</div><span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span><span style="font-size:0.7rem;color:var(--muted);margin-left:8px;">👍 ${idea.votes||0} votes · 💬 ${(idea.comments||[]).length}</span></div>`; }).join(''):'<p style="font-size:0.8rem;color:var(--muted);">No ideas yet. Share your first idea!</p>'}
-    <a class="logout-link" onclick="logoutUser()" style="margin-top:0.75rem;">Sign out</a>`;
-}
+  </div>
 
-async function toggleVote(id, field, ideaTitle, ownerEmail, ownerName){
-  if(!window.__voteIdea){showToast('Connecting...','');return;}
-  const isUp = field==='votes';
-  const votedSet = isUp ? state.votedUp : state.votedDn;
-  const otherSet = isUp ? state.votedDn : state.votedUp;
-  const voted = votedSet.has(id);
-  const val = voted ? -1 : 1;
-  if(voted) votedSet.delete(id); else { votedSet.add(id); otherSet.delete(id); }
-  localStorage.setItem('is_voted_up', JSON.stringify([...state.votedUp]));
-  localStorage.setItem('is_voted_dn', JSON.stringify([...state.votedDn]));
-  try{
-    await window.__voteIdea(id, field, val);
-    if(isUp && val>0 && ownerEmail && window.__sendNotif) window.__sendNotif(ownerEmail, ideaTitle, window.__currentUser?.displayName||'Someone', 'vote');
-    showToast(val>0?(isUp?'▲ Upvoted! 🎉':'▼ Downvoted'):'Vote removed.',val>0&&isUp?'success':'');
-  }catch(e){showToast('Error. Try again.','error');}
-}
+  <div id="join-modal" class="join-overlay">
+    <div class="join-box">
+      <div class="join-title">Join IdeaSphere</div>
+      <div class="join-sub">Enter credentials to initialize secure tracking context</div>
+      <label class="join-label">Full Name</label>
+      <input type="text" id="join-name" class="join-input" placeholder="John Doe">
+      <label class="join-label">Email Address</label>
+      <input type="email" id="join-input-email" class="join-input" placeholder="john@example.com">
+      <button class="join-btn" onclick="submitJoinModal()">Confirm Account Context</button>
+      <button class="join-skip" onclick="closeJoinModal()">Cancel</button>
+    </div>
+  </div>
 
-function updateCC(inputId,countId,max){const v=document.getElementById(inputId).value.length;document.getElementById(countId).textContent=`${v} / ${max}`;}
+  <div id="toast" class="toast"></div>
+  <div id="notif-toast" class="notif-toast"></div>
 
-async function submitIdea(){
-  ['title','desc','cat'].forEach(f=>{document.getElementById('err-'+f).textContent='';document.getElementById('f-'+f).classList.remove('error');});
-  const title=document.getElementById('f-title').value.trim();
-  const desc=document.getElementById('f-desc').value.trim();
-  const cat=document.getElementById('f-cat').value;
-  const author=document.getElementById('f-author').value.trim()||window.__currentUser?.displayName||'Anonymous';
-  const country=document.getElementById('f-country').value.trim();
-  let valid=true;
-  if(!title){document.getElementById('err-title').textContent='Title is required.';document.getElementById('f-title').classList.add('error');valid=false;}
-  if(!desc||desc.length<20){document.getElementById('err-desc').textContent='Add more detail (min 20 chars).';document.getElementById('f-desc').classList.add('error');valid=false;}
-  if(!cat){document.getElementById('err-cat').textContent='Please select a category.';document.getElementById('f-cat').classList.add('error');valid=false;}
-  if(!valid)return;
-  if(!window.__submitIdea){showToast('Please wait...','error');return;}
-  const btn=document.getElementById('submit-btn');
-  btn.disabled=true;btn.textContent='⏳ Submitting…';
-  const flagMap={'india':'🇮🇳','brazil':'🇧🇷','nigeria':'🇳🇬','usa':'🇺🇸','ghana':'🇬🇭','pakistan':'🇵🇰','kenya':'🇰🇪','bangladesh':'🇧🇩','indonesia':'🇮🇩','mexico':'🇲🇽','ethiopia':'🇪🇹','egypt':'🇪🇬','china':'🇨🇳','uk':'🇬🇧','germany':'🇩🇪','france':'🇫🇷','japan':'🇯🇵'};
-  const flag=country?(flagMap[country.toLowerCase()]||'🌍'):'🌍';
-  try{
-    await window.__submitIdea({title,desc,category:cat,author,country,flag});
-    ['f-title','f-desc','f-author','f-country'].forEach(id=>document.getElementById(id).value='');
-    document.getElementById('f-cat').value='';
-    if(window.__currentUser) document.getElementById('f-author').value=window.__currentUser.displayName||'';
-    showTab('explore');
-    showToast('🎉 Your idea is live worldwide!','success');
-  }catch(e){showToast('Error. Try again.','error');}
-  btn.disabled=false;btn.textContent='🚀 Submit Idea';
-}
+  <footer>
+    Made with ♥ for the world · IdeaSphere © 2026 
+    · <a href="#" onclick="showAbout(); return false;">About Us</a> 
+    · <a href="#" onclick="showToast('Privacy protection enabled.','success'); return false;">Privacy Policy</a> 
+    · <a href="#" onclick="showToast('Platform free for open research.','success'); return false;">Terms of Use</a>
+  </footer>
 
-function openModal(id){
-  const idea=(window.__ideas||[]).find(i=>i.id===id);
-  if(!idea)return;
-  state.modalId=id;
-  const cm=CAT_META[idea.category]||CAT_META.social;
-  const av=getAC(idea.author||'?');
-  const status=idea.status||'Under Review';
-  const score=(idea.votes||0)-(idea.downvotes||0);
-  document.getElementById('m-tags').innerHTML=`<span class="tag ${cm.tagClass}">${cm.emoji} ${cm.label}</span><span class="status-badge ${STATUS_CLASS[status]||'status-review'}">${STATUS_EMOJI[status]} ${status}</span>`;
-  document.getElementById('m-title').textContent=idea.title||'';
-  document.getElementById('m-desc').textContent=idea.desc||'';
-  document.getElementById('m-votes').textContent=idea.votes||0;
-  document.getElementById('m-cmts').textContent=(idea.comments||[]).length;
-  document.getElementById('m-score').textContent=(score>0?'+':'')+score;
-  const avEl=document.getElementById('m-avatar');
-  avEl.style.background=av; avEl.textContent=ini(idea.author||'?');
-  document.getElementById('m-author-name').textContent=idea.author||'Anonymous';
-  document.getElementById('m-author-sub').textContent=`${idea.flag||'🌍'} ${idea.country||'World'} · ${timeAgo(idea.ts)} ago`;
-  document.getElementById('cmt-input').value='';
-  const votedU=state.votedUp.has(id);
-  const votedD=state.votedDn.has(id);
-  const mvb=document.getElementById('m-vote-btn');
-  mvb.classList.toggle('voted-m',votedU);
-  mvb.textContent=votedU?'✓ Upvoted':'▲ Upvote';
-  const mdb=document.getElementById('m-dn-btn');
-  mdb.classList.toggle('downed-m',votedD);
-  mdb.textContent=votedD?'✓ Downvoted':'▼ Downvote';
-  const ss=document.getElementById('status-selector');
-  const cue=window.__currentUser?.email;
-  if(cue && idea.ownerEmail===cue){ ss.style.display='block'; document.getElementById('status-sel').value=status; } else { ss.style.display='none'; }
-  renderComments(idea);
-  document.getElementById('overlay').classList.add('open');
-  document.body.style.overflow='hidden';
-}
+  <script>
+    const state = { page: 1, perPage: 6, currentTab: 'feed', modalId: null, voted: {}, downvoted: {} };
+    let joinPromiseResolve = null;
 
-function closeModal(){document.getElementById('overlay').classList.remove('open');document.body.style.overflow='';state.modalId=null;}
-function overlayClick(e){if(e.target===document.getElementById('overlay'))closeModal();}
-function voteFromModal(field){if(!state.modalId)return;const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);if(idea) toggleVote(state.modalId,field,idea.title,idea.ownerEmail||'',idea.ownerName||idea.author||'');}
+    function switchTab(tabId) {
+      state.currentTab = tabId;
+      document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.bn-item').forEach(b => b.classList.remove('active'));
+      
+      document.getElementById('tab-' + tabId).classList.add('active');
+      const idx = ['feed', 'submit', 'leaderboard', 'profile'].indexOf(tabId);
+      if(idx !== -1) document.querySelectorAll('.bottom-nav .bn-item')[idx].classList.add('active');
+      
+      window.scrollTo(0,0);
+      if(tabId === 'leaderboard' || tabId === 'profile') renderLeaderboardAndProfile();
+    }
 
-async function updateIdeaStatus(){
-  if(!state.modalId||!window.__updateStatus)return;
-  const newStatus=document.getElementById('status-sel').value;
-  try{ await window.__updateStatus(state.modalId,newStatus); showToast(`Status updated: ${newStatus}!`,'success'); }catch(e){showToast('Error updating status.','error');}
-}
+    function countChar(fid, cid, max) {
+      const v = document.getElementById(fid).value.length;
+      document.getElementById(cid).textContent = `${v} / ${max}`;
+    }
 
-function shareIdeaWA(){
-  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
-  if(!idea)return;
-  const msg=encodeURIComponent(`💡 *${idea.title}*\n\n${(idea.desc||'').substring(0,150)}...\n\n🌍 Vote on IdeaSphere:\nhttps://ideasphere-debug.github.io/ideasphere`);
-  window.open(`https://wa.me/?text=${msg}`,'_blank');
-}
+    function loginGoogle() { if(window.__loginGoogle) window.__loginGoogle(); }
+    function logout() { if(window.__logout) window.__logout(); }
 
-function shareWebsite(){
-  const msg=encodeURIComponent('🌍 IdeaSphere — Share ideas that change the world!\nhttps://ideasphere-debug.github.io/ideasphere');
-  window.open(`https://wa.me/?text=${msg}`,'_blank');
-}
+    window.showJoinModal = function() {
+      document.getElementById('join-modal').classList.add('show');
+      return new Promise(resolve => { joinPromiseResolve = resolve; });
+    };
+    function submitJoinModal() {
+      const name = document.getElementById('join-name').value.trim();
+      const email = document.getElementById('join-input-email').value.trim();
+      if(!name || !email) { showToast('Please completely fill both fields','error'); return; }
+      document.getElementById('join-modal').classList.remove('show');
+      if(joinPromiseResolve) joinPromiseResolve({name, email});
+    }
+    function closeJoinModal() {
+      document.getElementById('join-modal').classList.remove('show');
+      if(joinPromiseResolve) joinPromiseResolve({name: null, email: null});
+    }
 
-function renderComments(idea){
-  const list=document.getElementById('cmt-list');
-  const title=document.getElementById('cmts-title');
-  const cmts=idea.comments||[];
-  title.textContent=`Comments (${cmts.length})`;
-  if(!cmts.length){list.innerHTML='<div style="font-size:0.75rem;color:var(--muted);padding:0.4rem 0">No comments yet!</div>';return;}
-  list.innerHTML=[...cmts].reverse().map(c=>`<div class="comment-item"><div class="comment-meta">${esc(c.name||'Anonymous')} · ${timeAgo(c.ts)}</div><div class="comment-text">${esc(c.text)}</div></div>`).join('');
-}
+    window.updateAuthUI = function(user) {
+      const authNav = document.getElementById('auth-nav');
+      const sideCard = document.getElementById('sidebar-profile-card');
+      const profTab = document.getElementById('profile-page-card');
+      
+      if (user) {
+        const nameStr = user.displayName || 'User';
+        const pImg = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nameStr)}&background=16a34a&color=fff`;
+        
+        const navHtml = `<div class="user-nav"><img class="user-nav-img" src="${pImg}"><span class="user-nav-name">${nameStr.split(' ')[0]}</span><button class="logout-btn" onclick="logout()">Exit</button></div>`;
+        authNav.innerHTML = navHtml;
+        
+        const cardHtml = `<div class="s-title">👤 Account</div><div class="user-profile-card"><img class="user-profile-img" src="${pImg}"><div><div class="user-profile-name">${nameStr}</div><div class="user-profile-email">${user.email||''}</div><span class="logout-link" onclick="logout()">Sign Out</span></div></div>`;
+        if(sideCard) sideCard.innerHTML = cardHtml;
+        
+        // Render detailed Profile Metrics tab
+        const myIdeas = (window.__ideas || []).filter(i => i.ownerEmail === user.email);
+        const myVotes = myIdeas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
+        profTab.innerHTML = `
+          <div class="s-title">👤 Your Profile Dashboard</div>
+          <div class="user-profile-card" style="margin-bottom:1.5rem">
+            <img class="user-profile-img" style="width:50px;height:50px;" src="${pImg}">
+            <div>
+              <div class="user-profile-name" style="font-size:1.1rem">${nameStr}</div>
+              <div class="user-profile-email" style="font-size:0.8rem">${user.email||''}</div>
+            </div>
+          </div>
+          <div class="modal-stats">
+            <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Published</div></div>
+            <div class="m-stat"><div class="m-stat-n">${myVotes}</div><div class="m-stat-l">Impact Upvotes</div></div>
+          </div>
+          <div style="margin-top:1rem">
+            <div class="comments-title">Your Active Pipeline Tracker</div>
+            ${myIdeas.length === 0 ? '<p class="login-sub">You have not submitted any ideas yet.</p>' : myIdeas.map(i => `
+              <div class="comment-item" style="margin-bottom:0.5rem; cursor:pointer;" onclick="openModal('${i.id}')">
+                <span class="status-badge ${getStatusClass(i.status)}" style="float:right">${i.status}</span>
+                <strong style="font-size:0.85rem">${esc(i.title)}</strong>
+              </div>
+            `).join('')}
+          </div>`;
+      } else {
+        authNav.innerHTML = `<button class="login-btn-nav" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In</button>`;
+        if(sideCard) sideCard.innerHTML = `<div class="s-title">👤 Account</div><p class="login-sub">Login to submit ideas & get notifications!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
+        profTab.innerHTML = `<div class="s-title">👤 Your Profile</div><p class="login-sub">Sign in to see your profile metrics and active pipeline data tracking!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
+      }
+      if(window.__ideas) renderFeed();
+    };
 
-async function addComment(){
-  const inp=document.getElementById('cmt-input');
-  const text=inp.value.trim();
-  if(!text||!state.modalId||!window.__addComment)return;
-  const name=window.__currentUser?.displayName||document.getElementById('f-author').value.trim()||'Anonymous';
-  const idea=(window.__ideas||[]).find(i=>i.id===state.modalId);
-  try{
-    await window.__addComment(state.modalId,{name,text,ts:Date.now()});
-    if(idea?.ownerEmail && window.__sendNotif) window.__sendNotif(idea.ownerEmail,idea.title,name,'comment');
-    inp.value='';
-    const updated=(window.__ideas||[]).find(i=>i.id===state.modalId);
-    if(updated)renderComments(updated);
-    showToast('💬 Comment posted!','success');
-  }catch(e){showToast('Error.','error');}
-}
+    window.renderAll = function() {
+      // CALCULATE & ASSIGN STATS DYNAMICALLY
+      const totalIdeas = window.__ideas.length;
+      const totalVotes = window.__ideas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
+      const uniqueCountries = new Set(window.__ideas.map(i => i.country).filter(Boolean));
+      const totalImplemented = window.__ideas.filter(i => i.status === 'Implemented').length;
 
-function loadMore(){state.page++;renderFeed();}
+      document.getElementById('stat-ideas-ui').textContent = totalIdeas;
+      document.getElementById('stat-countries-ui').textContent = uniqueCountries.size || 1; 
+      document.getElementById('stat-votes-ui').textContent = totalVotes;
+      document.getElementById('stat-implemented-ui').textContent = totalImplemented;
 
-let toastTimer;
-function showAbout(){ showToast('🌍 IdeaSphere — A global and collaborative platform where students, researchers, and citizens share innovative ideas to solve real-world community challenges.','success'); }
-function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='toast';},3000);}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+      renderFeed();
+      renderSidebars();
+      if(state.currentTab === 'leaderboard' || state.currentTab === 'profile') renderLeaderboardAndProfile();
+      if(state.modalId) {
+        const fresh = window.__ideas.find(i=>i.id === state.modalId);
+        if(fresh) updateModalUI(fresh);
+      }
+    };
 
-renderSidebar();
-</script>
+    function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function getStatusClass(s) {
+      if(s==='Approved') return 'status-approved';
+      if(s==='Implemented') return 'status-implemented';
+      if(s==='Rejected') return 'status-rejected';
+      return 'status-review';
+    }
+
+    function renderFeed() {
+      const container = document.getElementById('ideas-container');
+      if(!window.__ideas || window.__ideas.length === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon">🍃</div><p>No solution structures submitted yet</p></div>';
+        return;
+      }
+      
+      let list = [...window.__ideas];
+      const q = document.getElementById('s-query').value.toLowerCase().trim();
+      const cat = document.getElementById('s-cat').value;
+      const stat = document.getElementById('s-status').value;
+      const sort = document.getElementById('feed-sort').value;
+
+      if(q) list = list.filter(i => i.title.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.ownerName||'').toLowerCase().includes(q));
+      if(cat) list = list.filter(i => i.category === cat);
+      if(stat) list = list.filter(i => i.status === stat);
+
+      if(sort === 'votes') list.sort((a,b) => (b.votes||0) - (a.votes||0));
+      else if(sort === 'comments') list.sort((a,b) => (b.comments?.length||0) - (a.comments?.length||0));
+      else if(sort === 'score') list.sort((a,b) => ((b.votes||0)-(b.downvotes||0)) - ((a.votes||0)-(a.downvotes||0)));
+      else list.sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
+
+      document.getElementById('feed-count-ui').textContent = `${list.length} ideas verified`;
+
+      const totalItems = list.length;
+      const maxToShow = state.page * state.perPage;
+      const chunk = list.slice(0, maxToShow);
+
+      if(chunk.length === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><p>No configurations match selected search criteria</p></div>';
+        document.getElementById('load-more-btn').style.display = 'none';
+        return;
+      }
+
+      container.innerHTML = chunk.map(i => {
+        const netScore = (i.votes || 0) - (i.downvotes || 0);
+        const scoreClass = netScore > 0 ? 'positive' : (netScore < 0 ? 'negative' : '');
+        const upVoted = state.voted[i.id] ? 'voted' : '';
+        const dnVoted = state.downvoted[i.id] ? 'downed' : '';
+        const isMine = window.__currentUser?.email && i.ownerEmail === window.__currentUser.email;
+        const init = (i.ownerName || 'A').charAt(0).toUpperCase();
+        
+        return `
+          <div class="idea-card" onclick="openModal('${i.id}')">
+            <div class="card-head">
+              <div class="vote-col" onclick="event.stopPropagation()">
+                <button class="vote-up ${upVoted}" onclick="vote('${i.id}','votes', event)">▲</button>
+                <div class="vote-score ${scoreClass}">${netScore}</div>
+                <button class="vote-dn ${dnVoted}" onclick="vote('${i.id}','downvotes', event)">▼</button>
+              </div>
+              <div class="card-body">
+                <div class="card-tags">
+                  <span class="tag tag-${i.category}">${i.category}</span>
+                  <span class="status-badge ${getStatusClass(i.status)}">${i.status}</span>
+                  ${isMine ? '<span class="tag tag-mine">Mine</span>' : ''}
+                </div>
+                <h3 class="card-title">${esc(i.title)}</h3>
+                <p class="card-desc">${esc(i.desc)}</p>
+                <div class="card-foot">
+                  <div class="author-row">
+                    <div class="avatar" style="background:#4a5568">${init}</div>
+                    <span class="author-name">${esc(i.ownerName || 'Anonymous')} · 📍${esc(i.country || 'Global')}</span>
+                  </div>
+                  <div class="card-meta">
+                    <span class="meta-chip">💬 ${i.comments?.length || 0} responses</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+
+      document.getElementById('load-more-btn').style.display = maxToShow < totalItems ? 'block' : 'none';
+    }
+
+    function loadMore() { state.page++; renderFeed(); }
+
+    async function vote(id, field, ev) {
+      if(ev) ev.stopPropagation();
+      if(!window.__voteIdea) return;
+      
+      if(field === 'votes') {
+        if(state.voted[id]) return;
+        state.voted[id] = true;
+        if(state.downvoted[id]) { delete state.downvoted[id]; await window.__voteIdea(id, 'downvotes', -1); }
+        await window.__voteIdea(id, 'votes', 1);
+      } else {
+        if(state.downvoted[id]) return;
+        state.downvoted[id] = true;
+        if(state.voted[id]) { delete state.voted[id]; await window.__voteIdea(id, 'votes', -1); }
+        await window.__voteIdea(id, 'downvotes', 1);
+      }
+      
+      // Attempt dynamic email alert hook
+      const target = (window.__ideas||[]).find(i=>i.id===id);
+      if(target?.ownerEmail && window.__sendNotif) {
+        window.__sendNotif(target.ownerEmail, target.title, window.__currentUser?.displayName || 'An anonymous citizen', field === 'votes' ? 'vote' : 'downvote');
+      }
+      showToast('Interaction synchronized!','success');
+    }
+
+    function renderSidebars() {
+      const ideas = window.__ideas || [];
+      
+      // Trending Analysis
+      const trends = {};
+      ideas.forEach(i => { trends[i.category] = (trends[i.category] || 0) + 1; });
+      const sortedTrends = Object.keys(trends).sort((a,b)=>trends[b]-trends[a]);
+      document.getElementById('trending-container').innerHTML = sortedTrends.map(t => `<div class="trend-item" onclick="document.getElementById('s-cat').value='${t}'; renderFeed();"><span class="trend-name">${t.toUpperCase()}</span><span class="trend-count">${trends[t]} elements</span></div>`).join('');
+
+      // Top Countries Analysis
+      const countries = {};
+      ideas.forEach(i => { if(i.country) countries[i.country] = (countries[i.country] || 0) + 1; });
+      const sortedCountries = Object.keys(countries).sort((a,b)=>countries[b]-countries[a]).slice(0, 5);
+      const maxCount = Math.max(...Object.values(countries), 1);
+      document.getElementById('countries-container').innerHTML = sortedCountries.map(c => `
+        <div class="country-row">
+          <span class="c-name">${esc(c)}</span>
+          <div class="c-bar-bg"><div class="c-bar" style="width:${(countries[c]/maxCount)*100}%"></div></div>
+        </div>`).join('');
+    }
+
+    function renderLeaderboardAndProfile() {
+      const ideas = [...(window.__ideas || [])];
+      ideas.sort((a,b) => (b.votes||0) - (a.votes||0));
+      
+      document.getElementById('lb-ideas').innerHTML = ideas.slice(0, 4).map((i, idx) => `
+        <div class="lb-item" onclick="openModal('${i.id}')" style="cursor:pointer">
+          <div class="lb-rank ${idx===0?'gold':(idx===1?'silver':(idx===2?'bronze':''))}">${idx+1}</div>
+          <div class="lb-info"><div class="lb-name">${esc(i.title)}</div><div class="lb-sub">${esc(i.ownerName)} · ${i.category}</div></div>
+          <div class="lb-score">${i.votes||0} up</div>
+        </div>`).join('');
+
+      // Contributors aggregation metrics calculation
+      const users = {};
+      window.__ideas.forEach(i => {
+        if(!i.ownerEmail) return;
+        if(!users[i.ownerEmail]) users[i.ownerEmail] = { name: i.ownerName, count: 0, score: 0 };
+        users[i.ownerEmail].count++;
+        users[i.ownerEmail].score += (i.votes || 0);
+      });
+      const sortedUsers = Object.values(users).sort((a,b) => b.score - a.score).slice(0,4);
+      document.getElementById('lb-users').innerHTML = sortedUsers.map((u, idx) => `
+        <div class="lb-item">
+          <div class="lb-rank ${idx===0?'gold':(idx===1?'silver':(idx===2?'bronze':''))}">${idx+1}</div>
+          <div class="lb-info"><div class="lb-name">${esc(u.name || 'Contributor')}</div><div class="lb-sub">${u.count} active scale projects published</div></div>
+          <div class="lb-score">${u.score} pts</div>
+        </div>`).join('');
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      const btn = document.getElementById('form-sub-btn');
+      btn.disabled = true;
+      
+      const idea = {
+        title: document.getElementById('f-title').value.trim(),
+        desc: document.getElementById('f-desc').value.trim(),
+        category: document.getElementById('f-cat').value,
+        country: document.getElementById('f-country').value,
+        author: document.getElementById('f-author').value.trim() || 'Anonymous'
+      };
+
+      try {
+        if(window.__submitIdea) {
+          await window.__submitIdea(idea);
+          showToast('🚀 Solution deployed successfully to network map!','success');
+          e.target.reset();
+          countChar('f-title','c-title',100);
+          countChar('f-desc','c-desc',600);
+          switchTab('feed');
+        }
+      } catch(err) {
+        document.getElementById('form-error-ui').textContent = 'Error compiling data layer connection parameters.';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // VIEW LAYER INTERACTIVE MODALS CONTEXT
+    function openModal(id) {
+      state.modalId = id;
+      const target = window.__ideas.find(i=>i.id === id);
+      if(!target) return;
+      document.getElementById('modal-overlay').classList.add('open');
+      updateModalUI(target);
+    }
+    function closeModal(e) {
+      if(!e || e.target === document.getElementById('modal-overlay') || e === null) {
+        document.getElementById('modal-overlay').classList.remove('open');
+        state.modalId = null;
+      }
+    }
+
+    function updateModalUI(idea) {
+      document.getElementById('m-title').textContent = idea.title;
+      document.getElementById('m-desc').textContent = idea.desc;
+      document.getElementById('m-stat-votes').textContent = idea.votes || 0;
+      document.getElementById('m-stat-cmts').textContent = idea.comments?.length || 0;
+      document.getElementById('m-stat-score').textContent = (idea.votes || 0) - (idea.downvotes || 0);
+      document.getElementById('m-auth-name').textContent = idea.ownerName || 'Anonymous';
+      document.getElementById('m-auth-sub').textContent = `Innovator context · 📍 ${idea.country || 'Global pipeline'}`;
+      document.getElementById('m-avatar').textContent = (idea.ownerName || 'A').charAt(0).toUpperCase();
+      document.getElementById('m-tags').innerHTML = `<span class="tag tag-${idea.category}">${idea.category}</span><span class="status-badge ${getStatusClass(idea.status)}">${idea.status}</span>`;
+      
+      // WhatsApp Share Configuration Update
+      document.getElementById('m-btn-wa').href = `https://api.whatsapp.com/send?text=${encodeURIComponent('Check out this incredible community solution platform proposal on IdeaSphere: ' + idea.title + ' — https://ideasphere-debug.github.io/ideasphere/')}`;
+
+      // Admin verification logic execution wrapper context
+      const adminPanel = document.getElementById('m-admin-panel');
+      if(window.__currentUser && (window.__currentUser.email === idea.ownerEmail || window.__currentUser.email === 'ideaspherecontact0@gmail.com')) {
+        adminPanel.style.display = 'block';
+        document.getElementById('m-status-select').value = idea.status || 'Under Review';
+      } else {
+        adminPanel.style.display = 'none';
+      }
+
+      // Check user interaction actions buttons styling context
+      document.getElementById('m-btn-vote').className = state.voted[idea.id] ? 'm-vote-btn voted-m' : '';
+      document.getElementById('m-btn-down').className = state.downvoted[idea.id] ? 'm-dn-btn downed-m' : 'm-dn-btn';
+
+      renderComments(idea);
+    }
+
+    async function changeIdeaStatus() {
+      if(!state.modalId || !window.__updateStatus) return;
+      const selectVal = document.getElementById('m-status-select').value;
+      try {
+        await window.__updateStatus(state.modalId, selectVal);
+        showToast('🎯 Pipeline matrix scope parameters initialized.','success');
+      } catch(e) {
+        showToast('Unauthorized execution rejection.','error');
+      }
+    }
+
+    function modalVote(field) {
+      if(state.modalId) vote(state.modalId, field, null);
+    }
+
+    function renderComments(idea) {
+      const list = document.getElementById('modal-comments-list');
+      if(!idea.comments || idea.comments.length === 0) {
+        list.innerHTML = '<p class="login-sub" style="text-align:left;padding:0.5rem 0;">No context statements posted yet.</p>';
+        return;
+      }
+      // Sort comments by timestamp
+      const sorted = [...idea.comments].sort((a,b)=>b.ts - a.ts);
+      list.innerHTML = sorted.map(c => `
+        <div class="comment-item">
+          <div class="comment-meta"><strong>${esc(c.name)}</strong> · ${new Date(c.ts).toLocaleDateString()}</div>
+          <div class="comment-text">${esc(c.text)}</div>
+        </div>`).join('');
+    }
+
+    async function addComment() {
+      const inp = document.getElementById('cmt-input');
+      const text = inp.value.trim();
+      if(!text || !state.modalId || !window.__addComment) return;
+      
+      const name = window.__currentUser?.displayName || document.getElementById('f-author').value.trim() || 'Anonymous Innovator';
+      const idea = (window.__ideas || []).find(i => i.id === state.modalId);
+      
+      try {
+        await window.__addComment(state.modalId, { name, text, ts: Date.now() });
+        if(idea?.ownerEmail && window.__sendNotif) {
+          window.__sendNotif(idea.ownerEmail, idea.title, name, 'comment');
+        }
+        inp.value = '';
+        showToast('💬 Public comment added successfully!','success');
+      } catch(e) {
+        showToast('Network synchronization delay initialization fail.','error');
+      }
+    }
+
+    let toastTimer;
+    function showAbout() { 
+      showToast('🌍 IdeaSphere — A global collaborative platform where students, researchers, and citizens share innovative ideas to resolve real-world challenges.', 'success'); 
+    }
+    function showToast(msg, type='') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show' + (type ? ' ' + type : '');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { t.className = 'toast'; }, 3000);
+    }
+
+    // Escape dialog configuration closures
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') { closeModal(null); closeJoinModal(); } });
+  </script>
 </body>
 </html>
+
