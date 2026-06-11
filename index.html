@@ -34,7 +34,6 @@
   window.__db = db;
   window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
 
-  // Track state change dynamically
   onAuthStateChanged(auth, u => {
     if (u) {
       localStorage.removeItem('is_local_user');
@@ -50,7 +49,6 @@
     if(window.updateAuthUI) window.updateAuthUI(window.__currentUser);
   });
 
-  // Real Google Sign In function with local modal backup
   window.__loginGoogle = async () => {
     try {
       const result = await signInWithPopup(auth, provider);
@@ -97,8 +95,8 @@
       ts:{seconds:Math.floor(Date.now()/1000)},
       votes:0,
       downvotes:0,
-      agreeVotes:0,
-      disagreeVotes:0,
+      pollAgree:0,
+      pollDisagree:0,
       comments:[],
       reach:1,
       status:'Under Review',
@@ -112,7 +110,6 @@
   window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
   window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
   
-  // SECURED Backend state configuration trigger
   window.__updateStatus = async (id,status) => { 
     const idea = (window.__ideas || []).find(i => i.id === id);
     if (!idea) return;
@@ -121,6 +118,12 @@
     } else {
       throw new Error("Unauthorized access configuration modification.");
     }
+  };
+
+  // Poll vote
+  window.__pollVote = async (id, field) => {
+    const u = {}; u[field] = increment(1);
+    await updateDoc(doc(db,"ideas",id), u);
   };
   
   window.__dbReady = true;
@@ -133,13 +136,9 @@
       if(!to)return;
       try{
         await emailjs.send("service_tlgp8gj","template_maj59l",{
-          to_email:to,
-          idea_title:title,
-          name:name||"Someone",
-          type,
+          to_email:to,idea_title:title,name:name||"Someone",type,
           message:type==="vote"?`${name} upvoted your idea "${title}"!`:`${name} commented on "${title}"!`,
-          email:"noreply@ideasphere.com",
-          time:new Date().toLocaleString()
+          email:"noreply@ideasphere.com",time:new Date().toLocaleString()
         });
       }catch(e){console.error(e);}
     };
@@ -147,7 +146,9 @@
 </script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
+
+/* ===================== DARK MODE VARIABLES ===================== */
+:root {
   --ink:#0f1117;--ink2:#2d2d3a;--muted:#888;--cream:#f7f8fc;--white:#fff;
   --border:rgba(15,17,23,0.08);--border2:rgba(15,17,23,0.15);
   --green:#16a34a;--green-l:#22c55e;--green-bg:#dcfce7;
@@ -156,29 +157,53 @@
   --teal:#0d9488;--teal-bg:#ccfbf1;--orange:#ea580c;--orange-bg:#ffedd5;
   --shadow:0 1px 12px rgba(15,17,23,0.06);--shadow2:0 8px 32px rgba(15,17,23,0.12);
   --r:12px;--r2:18px;
+  --nav-bg:#0f1117;
+  --body-bg:#f7f8fc;
+  --card-bg:#fff;
+  --input-bg:#f7f8fc;
+  --sidebar-bg:#fff;
+  --modal-bg:#fff;
+  --footer-bg:#0f1117;
 }
 
-/* Naya Theme Configuration for Dark Mode */
 [data-theme="dark"] {
-  --ink:#ffffff;--ink2:#e2e8f0;--muted:#a0aec0;--cream:#121214;--white:#1e1e24;
-  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.18);
-  --shadow:0 1px 12px rgba(0,0,0,0.25);--shadow2:0 8px 32px rgba(0,0,0,0.4);
+  --ink:#e8eaf0;--ink2:#c8cad4;--muted:#888;--cream:#1a1d2e;--white:#242736;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.13);
+  --green:#22c55e;--green-l:#4ade80;--green-bg:#14532d44;
+  --blue:#60a5fa;--blue-bg:#1e3a5f44;--red:#f87171;--red-bg:#7f1d1d44;
+  --amber:#fbbf24;--amber-bg:#78350f44;--purple:#a78bfa;--purple-bg:#4c1d9544;
+  --teal:#2dd4bf;--teal-bg:#134e4a44;--orange:#fb923c;--orange-bg:#7c2d1244;
+  --shadow:0 1px 12px rgba(0,0,0,0.3);--shadow2:0 8px 32px rgba(0,0,0,0.5);
+  --nav-bg:#0a0c14;
+  --body-bg:#13151f;
+  --card-bg:#1e2130;
+  --input-bg:#151722;
+  --sidebar-bg:#1e2130;
+  --modal-bg:#1e2130;
+  --footer-bg:#0a0c14;
 }
 
 html{scroll-behavior:smooth}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:90px;transition: background-color 0.3s, color 0.3s;}
-.nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--body-bg);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:90px;transition:background 0.3s,color 0.3s;}
+
+/* ===================== NAV ===================== */
+.nav{position:sticky;top:0;z-index:50;background:var(--nav-bg);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;transition:background 0.3s;}
 .logo{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:7px;text-decoration:none;}
 .logo-dot{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#4ade80);display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;}
 .nav-right{display:flex;align-items:center;gap:0.5rem;}
-.nav-btn{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-.theme-btn-nav {background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;}
 
+/* ✨ DARK MODE TOGGLE */
+.dark-toggle{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1rem;transition:all 0.2s;flex-shrink:0;}
+.dark-toggle:hover{background:rgba(255,255,255,0.2);}
+
+.nav-btn{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
 .user-nav{display:flex;align-items:center;gap:6px;}
 .user-nav-img{width:26px;height:26px;border-radius:50%;border:2px solid var(--green-l);object-fit:cover;}
 .user-nav-name{color:#fff;font-size:0.75rem;font-weight:500;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .logout-btn{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.15);padding:4px 8px;border-radius:12px;font-size:0.7rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
 .login-btn-nav{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:4px;}
+
+/* ===================== HERO ===================== */
 .hero{background:linear-gradient(135deg,#0f1117 0%,#1a1f2e 50%,#0f2a1a 100%);color:#fff;padding:3.5rem 1.25rem 2.5rem;text-align:center;position:relative;overflow:hidden;}
 .hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 20% 50%,rgba(34,197,94,0.12),transparent 60%),radial-gradient(ellipse 50% 60% at 80% 30%,rgba(37,99,235,0.1),transparent 60%);pointer-events:none;}
 .hero-inner{position:relative;max-width:680px;margin:0 auto}
@@ -190,41 +215,53 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .btn-hp{background:var(--green);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all 0.2s;}
 .btn-hp:hover{background:var(--green-l);transform:translateY(-1px)}
 .btn-hs{background:transparent;color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);padding:10px 22px;border-radius:8px;font-size:0.88rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
-.stats-bar{background:var(--white);border-bottom:1px solid var(--border);display:flex;justify-content:center;flex-wrap:wrap;}
+
+/* ===================== STATS BAR ===================== */
+.stats-bar{background:var(--card-bg);border-bottom:1px solid var(--border);display:flex;justify-content:center;flex-wrap:wrap;transition:background 0.3s;}
 .stat-item{padding:0.9rem 1.5rem;text-align:center;border-right:1px solid var(--border);}
 .stat-item:last-child{border-right:none}
 .stat-n{font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;color:var(--green);line-height:1}
 .stat-l{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;z-index:40;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
+
+/* ===================== BOTTOM NAV ===================== */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card-bg);border-top:1px solid var(--border);display:flex;z-index:40;box-shadow:0 -4px 20px rgba(0,0,0,0.08);transition:background 0.3s;}
 .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;color:var(--muted);font-size:0.6rem;font-weight:500;gap:3px;transition:color 0.2s;}
 .bn-item.active{color:var(--green)}
 .bn-icon{font-size:1.15rem}
 .bn-item.active .bn-icon{transform:scale(1.1)}
+
+/* ===================== PAGE TABS ===================== */
 .page-tab{display:none}
 .page-tab.active{display:block}
 .page{max-width:1160px;margin:0 auto;padding:1.5rem 1rem}
 .layout{display:grid;grid-template-columns:1fr 290px;gap:1.5rem;align-items:start}
 @media(max-width:860px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
-.search-panel{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow);}
+
+/* ===================== SEARCH ===================== */
+.search-panel{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r2);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow);transition:background 0.3s;}
 .search-panel-title{font-family:'Fraunces',serif;font-size:0.95rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
 .search-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;}
 @media(max-width:600px){.search-grid{grid-template-columns:1fr}}
-.s-inp,.s-sel{width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
-.s-inp:focus,.s-sel:focus{border-color:var(--green);background:var(--white)}
+.s-inp,.s-sel{width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--input-bg);outline:none;transition:background 0.3s,color 0.3s,border-color 0.2s;}
+.s-inp:focus,.s-sel:focus{border-color:var(--green);background:var(--card-bg)}
 .search-full{grid-column:1/-1}
 .search-btn{background:var(--green);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;}
 .clear-btn{background:var(--cream);color:var(--muted);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;cursor:pointer;}
+
+/* ===================== FEED ===================== */
 .feed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem}
 .feed-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600}
 .feed-count{font-size:0.78rem;color:var(--muted);background:var(--cream);padding:3px 10px;border-radius:12px;}
-.sort-sel{padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;background:var(--white);color:var(--ink);outline:none;cursor:pointer;}
+.sort-sel{padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;background:var(--card-bg);color:var(--ink);outline:none;cursor:pointer;transition:background 0.3s,color 0.3s;}
 .ideas-feed{display:flex;flex-direction:column;gap:0.85rem}
 .status-badge{display:inline-flex;align-items:center;gap:4px;font-size:0.67rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;}
 .status-review{background:#fef3c7;color:#92400e;}
 .status-approved{background:#dbeafe;color:#1d4ed8;}
 .status-implemented{background:#dcfce7;color:#15803d;}
 .status-rejected{background:#fee2e2;color:#991b1b;}
-.idea-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.1rem 1.2rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;position:relative;}
+
+/* ===================== IDEA CARD ===================== */
+.idea-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r2);padding:1.1rem 1.2rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;position:relative;}
 .idea-card:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--border2)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .card-head{display:flex;gap:0.7rem;align-items:flex-start}
@@ -243,14 +280,23 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .card-title{font-family:'Fraunces',serif;font-size:0.97rem;font-weight:600;margin-bottom:4px;line-height:1.3}
 .card-desc{font-size:0.8rem;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
-/* Custom Image support css */
-.card-media-preview {width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin: 8px 0;}
-.card-link-preview {display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--blue); text-decoration:none; margin-bottom:8px;}
+/* ✨ CARD IMAGE */
+.card-img{width:100%;border-radius:10px;max-height:180px;object-fit:cover;margin:0.5rem 0 0.35rem;display:block;}
 
-/* Poll element styles */
-.card-poll-box {background:var(--cream); padding:8px 12px; border-radius:8px; margin:8px 0; font-size:0.75rem; display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
-.poll-mini-btn {background:var(--white); border:1px solid var(--border2); padding:3px 8px; border-radius:6px; cursor:pointer; font-weight:600; color:var(--ink); font-family:'Plus Jakarta Sans',sans-serif;}
-.poll-mini-btn:hover {background:var(--green-bg); border-color:var(--green);}
+/* ✨ POLL BAR ON CARD */
+.card-poll{margin-top:0.65rem;background:var(--cream);border-radius:8px;padding:0.55rem 0.65rem;border:1px solid var(--border);}
+.card-poll-label{font-size:0.65rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:0.4rem;}
+.poll-bar-row{display:flex;gap:6px;align-items:center;margin-bottom:3px;}
+.poll-bar-bg{flex:1;height:6px;border-radius:4px;overflow:hidden;background:var(--border2);}
+.poll-bar-agree{height:100%;border-radius:4px;background:var(--green);transition:width 0.4s ease;}
+.poll-bar-disagree{height:100%;border-radius:4px;background:var(--red);transition:width 0.4s ease;}
+.poll-pct{font-size:0.65rem;font-weight:700;min-width:28px;text-align:right;}
+.poll-pct.agree-pct{color:var(--green);}
+.poll-pct.disagree-pct{color:var(--red);}
+.poll-actions{display:flex;gap:5px;margin-top:0.4rem;}
+.poll-btn{flex:1;padding:5px 6px;border-radius:6px;border:1px solid var(--border2);background:none;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.7rem;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--ink);}
+.poll-btn.agree-btn:hover,.poll-btn.agree-btn.polled{background:var(--green-bg);border-color:var(--green);color:var(--green);}
+.poll-btn.disagree-btn:hover,.poll-btn.disagree-btn.polled{background:var(--red-bg);border-color:var(--red);color:var(--red);}
 
 .card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:0.75rem;flex-wrap:wrap;gap:0.35rem}
 .author-row{display:flex;align-items:center;gap:5px}
@@ -261,11 +307,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .wa-btn{background:#25D366;color:#fff;border:none;padding:4px 9px;border-radius:5px;font-size:0.68rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:3px;text-decoration:none;}
 .empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
 .empty-icon{font-size:2rem;margin-bottom:0.5rem}
-.load-more-btn{width:100%;margin-top:0.85rem;padding:9px;background:var(--white);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:500;color:var(--muted);cursor:pointer;}
+.load-more-btn{width:100%;margin-top:0.85rem;padding:9px;background:var(--card-bg);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:500;color:var(--muted);cursor:pointer;}
+
+/* ===================== SIDEBAR ===================== */
 .sidebar{display:flex;flex-direction:column;gap:0.9rem}
-.s-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow)}
+.s-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow);transition:background 0.3s;}
 .s-title{font-family:'Fraunces',serif;font-size:0.88rem;font-weight:600;margin-bottom:0.8rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;}
-.google-login-btn{background:#fff;color:#333;border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
+.google-login-btn{background:var(--card-bg);color:var(--ink);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
 .google-login-btn:hover{background:var(--cream)}
 .login-sub{font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;text-align:center;}
 .user-profile-card{display:flex;align-items:center;gap:9px;}
@@ -273,10 +321,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .user-profile-name{font-size:0.85rem;font-weight:600}
 .user-profile-email{font-size:0.68rem;color:var(--muted)}
 .logout-link{font-size:0.72rem;color:var(--red);cursor:pointer;text-decoration:underline;margin-top:0.4rem;display:inline-block;}
+
+/* ===================== FORM ===================== */
 .form{display:flex;flex-direction:column;gap:0.6rem}
 .f-label{font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:1px;display:block}
-.f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
-.f-inp:focus,.f-ta:focus,.f-sel:focus{border-color:var(--green);background:var(--white)}
+.f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--input-bg);outline:none;transition:background 0.3s,color 0.3s,border-color 0.2s;}
+.f-inp:focus,.f-ta:focus,.f-sel:focus{border-color:var(--green);background:var(--card-bg)}
 .f-ta{resize:vertical;min-height:70px}
 .f-inp.error,.f-ta.error,.f-sel.error{border-color:var(--red)}
 .char-count{font-size:0.65rem;color:var(--muted);text-align:right;margin-top:1px}
@@ -284,6 +334,26 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .submit-btn:disabled{opacity:0.6;cursor:not-allowed}
 .form-error{font-size:0.68rem;color:var(--red)}
 .wa-sidebar-btn{background:#25D366;color:#fff;border:none;padding:8px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:5px;margin-top:0.4rem;text-decoration:none;}
+
+/* ✨ LINK PREVIEW HINT */
+.link-hint{font-size:0.68rem;color:var(--muted);margin-top:2px;font-style:italic;}
+
+/* ===================== LEADERBOARD ===================== */
+.lb-section{margin-bottom:1.5rem}
+.lb-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:7px;}
+.lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
+@media(max-width:600px){.lb-grid{grid-template-columns:1fr}}
+.lb-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow);}
+.lb-item{display:flex;align-items:center;gap:10px;padding:0.65rem 0;border-bottom:1px solid var(--border);}
+.lb-item:last-child{border-bottom:none}
+.lb-rank{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;width:28px;text-align:center;flex-shrink:0;}
+.lb-rank.gold{color:#f59e0b}.lb-rank.silver{color:#9ca3af}.lb-rank.bronze{color:#cd7c3a}
+.lb-info{flex:1;min-width:0}
+.lb-name{font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-sub{font-size:0.7rem;color:var(--muted)}
+.lb-score{font-family:'Fraunces',serif;font-size:1rem;font-weight:700;color:var(--green);flex-shrink:0;}
+
+/* ===================== TRENDING / COUNTRY ===================== */
 .trend-list{display:flex;flex-direction:column;gap:0.35rem}
 .trend-item{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer;}
 .trend-item:last-child{border-bottom:none}
@@ -295,23 +365,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .c-flag{font-size:0.9rem;flex-shrink:0}.c-name{font-size:0.74rem;flex:0 0 60px}
 .c-bar-bg{flex:1;height:4px;background:var(--green-bg);border-radius:3px;overflow:hidden}
 .c-bar{height:100%;background:var(--green-l);border-radius:3px}
-.lb-section{margin-bottom:1.5rem}
-.lb-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:7px;}
-.lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
-@media(max-width:600px){.lb-grid{grid-template-columns:1fr}}
-.lb-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow);}
-.lb-item{display:flex;align-items:center;gap:10px;padding:0.65rem 0;border-bottom:1px solid var(--border);}
-.lb-item:last-child{border-bottom:none}
-.lb-rank{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;width:28px;text-align:center;flex-shrink:0;}
-.lb-rank.gold{color:#f59e0b}.lb-rank.silver{color:#9ca3af}.lb-rank.bronze{color:#cd7c3a}
-.lb-info{flex:1;min-width:0}
-.lb-name{font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.lb-sub{font-size:0.7rem;color:var(--muted)}
-.lb-score{font-family:'Fraunces',serif;font-size:1rem;font-weight:700;color:var(--green);flex-shrink:0;}
+
+/* ===================== MODAL ===================== */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px);}
 .overlay.open{display:flex;animation:fadeIn 0.2s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.modal{background:var(--white);border-radius:20px;padding:0;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 64px rgba(0,0,0,0.22);}
+.modal{background:var(--modal-bg);border-radius:20px;padding:0;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 64px rgba(0,0,0,0.22);transition:background 0.3s;}
 .modal-close{position:absolute;top:0.8rem;right:0.8rem;width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--cream);font-size:0.9rem;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;z-index:2;}
 .modal-hero{padding:1.5rem 1.5rem 1rem;border-bottom:1px solid var(--border)}
 .modal-tags{margin-bottom:0.6rem;display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
@@ -319,39 +378,68 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:va
 .modal-desc{font-size:0.87rem;color:var(--muted);line-height:1.7}
 .modal-body{padding:1rem 1.5rem}
 .modal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem;margin-bottom:0.9rem}
-.m-stat{background:var(--cream);border-radius:9px;padding:0.7rem;text-align:center}
+.m-stat{background:var(--cream);border-radius:9px;padding:0.7rem;text-align:center;transition:background 0.3s;}
 .m-stat-n{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:700;color:var(--green)}
 .m-stat-l{font-size:0.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:1px}
-.modal-author{display:flex;align-items:center;gap:8px;margin-bottom:0.9rem;padding:0.7rem;background:var(--cream);border-radius:9px}
+.modal-author{display:flex;align-items:center;gap:8px;margin-bottom:0.9rem;padding:0.7rem;background:var(--cream);border-radius:9px;transition:background 0.3s;}
 .modal-author .avatar{width:32px;height:32px;font-size:0.7rem}
 .modal-author-name{font-size:0.85rem;font-weight:600}
 .modal-author-sub{font-size:0.7rem;color:var(--muted)}
 .modal-actions{display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.9rem;}
-.modal-actions button,.modal-actions a{flex:1;min-width:80px;padding:8px 10px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--white);color:var(--ink);text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;}
+.modal-actions button,.modal-actions a{flex:1;min-width:80px;padding:8px 10px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--card-bg);color:var(--ink);text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;}
 .m-vote-btn{background:var(--green) !important;color:#fff !important;border-color:var(--green) !important}
 .m-vote-btn.voted-m{background:var(--green-bg) !important;color:var(--green) !important;border-color:var(--green) !important}
-.m-dn-btn{background:var(--white) !important}
+.m-dn-btn{background:var(--card-bg) !important}
 .m-dn-btn.downed-m{background:var(--red-bg) !important;color:var(--red) !important;border-color:var(--red) !important}
 .m-wa-btn{background:#25D366 !important;color:#fff !important;border-color:#25D366 !important}
-.status-selector{margin-bottom:0.9rem;padding:0.75rem;background:var(--cream);border-radius:9px;}
+.status-selector{margin-bottom:0.9rem;padding:0.75rem;background:var(--cream);border-radius:9px;transition:background 0.3s;}
 .status-sel-label{font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px;display:block;}
-.status-sel(width:100%;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--white);outline:none;cursor:pointer;}
+.status-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--card-bg);outline:none;cursor:pointer;}
 .admin-note{font-size:0.68rem;color:var(--muted);margin-top:4px;}
+
+/* ✨ MODAL IMAGE */
+.modal-img{width:100%;border-radius:10px;max-height:220px;object-fit:cover;margin-bottom:0.8rem;display:block;}
+
+/* ✨ MODAL POLL SECTION */
+.modal-poll{background:var(--cream);border-radius:10px;padding:1rem;margin-bottom:0.9rem;transition:background 0.3s;}
+.modal-poll-title{font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:0.7rem;}
+.modal-poll-bars{margin-bottom:0.65rem;}
+.mpoll-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+.mpoll-label{font-size:0.72rem;font-weight:600;width:60px;flex-shrink:0;}
+.mpoll-bar-bg{flex:1;height:8px;border-radius:5px;overflow:hidden;background:var(--border2);}
+.mpoll-bar-fill{height:100%;border-radius:5px;transition:width 0.4s ease;}
+.mpoll-pct{font-size:0.72rem;font-weight:700;min-width:32px;text-align:right;}
+.modal-poll-btns{display:flex;gap:0.5rem;}
+.mpoll-btn{flex:1;padding:7px;border-radius:7px;border:1px solid var(--border2);background:none;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--ink);}
+.mpoll-btn.agree:hover,.mpoll-btn.agree.active{background:var(--green-bg);border-color:var(--green);color:var(--green);}
+.mpoll-btn.disagree:hover,.mpoll-btn.disagree.active{background:var(--red-bg);border-color:var(--red);color:var(--red);}
+
+/* ===================== COMMENTS ===================== */
 .comments-section{padding-top:0.9rem;border-top:1px solid var(--border)}
 .comments-title{font-size:0.8rem;font-weight:700;margin-bottom:0.6rem}
 .comment-box{display:flex;gap:6px;margin-bottom:0.6rem}
-.comment-input{flex:1;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;color:var(--ink);background:var(--cream);outline:none;}
-.comment-input:focus{border-color:var(--green);background:var(--white)}
+.comment-input{flex:1;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;color:var(--ink);background:var(--input-bg);outline:none;transition:background 0.3s,color 0.3s;}
+.comment-input:focus{border-color:var(--green);background:var(--card-bg)}
 .comment-submit{background:var(--green);color:#fff;border:none;padding:6px 11px;border-radius:7px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap}
 .comment-list{display:flex;flex-direction:column;gap:0.45rem}
-.comment-item{background:var(--cream);border-radius:7px;padding:0.55rem 0.7rem}
+.comment-item{background:var(--cream);border-radius:7px;padding:0.55rem 0.7rem;transition:background 0.3s;}
 .comment-meta{font-size:0.67rem;color:var(--muted);margin-bottom:2px}
 .comment-text{font-size:0.78rem;color:var(--ink2)}
+
+/* ===================== TOAST ===================== */
 .toast{position:fixed;bottom:80px;right:1rem;z-index:200;background:var(--ink);color:#fff;padding:0.7rem 1rem;border-radius:9px;font-size:0.82rem;font-weight:500;transform:translateY(60px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:260px;box-shadow:var(--shadow2);}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{background:var(--green)}.toast.error{background:var(--red)}
 
-footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.5rem 1.1rem 2.5rem;font-size:0.75rem;}
+/* ✨ PROFILE EDIT */
+.profile-edit-section{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border);}
+.profile-edit-title{font-size:0.8rem;font-weight:700;margin-bottom:0.75rem;display:flex;align-items:center;gap:5px;}
+.edit-field{margin-bottom:0.6rem;}
+.save-profile-btn{background:var(--green);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;margin-top:0.25rem;}
+.save-profile-btn:disabled{opacity:0.6;cursor:not-allowed}
+.profile-saved-badge{font-size:0.7rem;color:var(--green);margin-left:8px;display:none;}
+
+footer{background:var(--footer-bg);color:rgba(255,255,255,0.45);text-align:center;padding:1.5rem 1.1rem 2.5rem;font-size:0.75rem;transition:background 0.3s;}
 footer span{color:#4ade80}
 footer a{color: rgba(255,255,255,0.6); text-decoration: none; margin: 0 5px;}
 footer a:hover {color: #fff;}
@@ -382,8 +470,9 @@ footer a:hover {color: #fff;}
       <div class="logo-dot">🌍</div>IdeaSphere
     </a>
     <div class="nav-right">
-      <button class="theme-btn-nav" id="theme-toggle-btn" onclick="toggleTheme()">🌓 Theme</button>
       <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
+      <!-- ✨ DARK MODE TOGGLE -->
+      <button class="dark-toggle" id="dark-toggle-btn" onclick="toggleDark()" title="Toggle dark mode">🌙</button>
       <div id="auth-nav">
         <button class="login-btn-nav" onclick="loginGoogle()">
           <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
@@ -477,6 +566,7 @@ footer a:hover {color: #fff;}
     </div>
   </div>
 
+  <!-- ===================== SUBMIT TAB ===================== -->
   <div id="tab-submit" class="page-tab">
     <div class="page" style="max-width:560px">
       <div class="s-card" style="padding:1.5rem">
@@ -493,14 +583,6 @@ footer a:hover {color: #fff;}
             <label class="f-label">Description</label>
             <textarea id="f-desc" class="f-ta" placeholder="Explain your concept, how it helps people, and implementation details..." maxlength="600" oninput="countChar('f-desc','c-desc',600)" required></textarea>
             <div class="char-count" id="c-desc">0 / 600</div>
-          </div>
-          <div>
-            <label class="f-label">Optional: Image URL</label>
-            <input type="text" id="f-mediaUrl" class="f-inp" placeholder="Paste an image URL link...">
-          </div>
-          <div>
-            <label class="f-label">Optional: External Project Link</label>
-            <input type="text" id="f-linkUrl" class="f-inp" placeholder="https://example.com">
           </div>
           <div>
             <label class="f-label">Category</label>
@@ -536,6 +618,21 @@ footer a:hover {color: #fff;}
               </select>
             </div>
           </div>
+
+          <!-- ✨ IMAGE URL FIELD -->
+          <div>
+            <label class="f-label">📸 Image URL <span style="font-weight:400;text-transform:none;font-size:0.65rem">(optional)</span></label>
+            <input type="url" id="f-imgurl" class="f-inp" placeholder="https://example.com/your-image.jpg">
+            <div class="link-hint">Paste a direct image link — it'll show as a preview on your post card.</div>
+          </div>
+
+          <!-- ✨ WEB LINK FIELD -->
+          <div>
+            <label class="f-label">🔗 Reference Link <span style="font-weight:400;text-transform:none;font-size:0.65rem">(optional)</span></label>
+            <input type="url" id="f-weblink" class="f-inp" placeholder="https://your-research-or-demo-link.com">
+            <div class="link-hint">Add a website, article, or demo link related to your idea.</div>
+          </div>
+
           <div id="form-error-ui" class="form-error"></div>
           <button type="submit" id="form-sub-btn" class="submit-btn" style="margin-top:0.4rem">Publish Idea 🚀</button>
         </form>
@@ -557,6 +654,7 @@ footer a:hover {color: #fff;}
     </div>
   </div>
 
+  <!-- ===================== PROFILE TAB ===================== -->
   <div id="tab-profile" class="page-tab">
     <div class="page" style="max-width:600px">
       <div class="s-card" id="profile-page-card">
@@ -573,6 +671,7 @@ footer a:hover {color: #fff;}
     <button class="bn-item" onclick="switchTab('profile')"><div class="bn-icon">👤</div>Profile</button>
   </nav>
 
+  <!-- ===================== IDEA DETAIL MODAL ===================== -->
   <div id="modal-overlay" class="overlay" onclick="closeModal(event)">
     <div class="modal" onclick="event.stopPropagation()">
       <button class="modal-close" onclick="closeModal(null)">✕</button>
@@ -580,6 +679,12 @@ footer a:hover {color: #fff;}
         <div id="m-tags" class="modal-tags"></div>
         <h2 id="m-title" class="modal-title">Idea Details</h2>
         <p id="m-desc" class="modal-desc"></p>
+        <!-- ✨ Modal Image -->
+        <img id="m-img" class="modal-img" src="" alt="Idea image" style="display:none;">
+        <!-- ✨ Reference Link -->
+        <div id="m-link-row" style="display:none;margin-top:0.5rem;">
+          <a id="m-link" href="#" target="_blank" style="font-size:0.78rem;color:var(--blue);display:inline-flex;align-items:center;gap:4px;text-decoration:none;">🔗 <span id="m-link-text">View Reference</span></a>
+        </div>
       </div>
       <div class="modal-body">
         <div class="modal-stats">
@@ -604,6 +709,16 @@ footer a:hover {color: #fff;}
             <option value="Rejected">❌ Rejected</option>
           </select>
           <div class="admin-note">Changes update instantly across global endpoints.</div>
+        </div>
+
+        <!-- ✨ POLL SECTION IN MODAL -->
+        <div class="modal-poll" id="m-poll">
+          <div class="modal-poll-title">📊 Community Poll — Do you support this idea?</div>
+          <div class="modal-poll-bars" id="m-poll-bars"></div>
+          <div class="modal-poll-btns">
+            <button class="mpoll-btn agree" id="m-poll-agree-btn" onclick="modalPoll('pollAgree')">👍 Agree</button>
+            <button class="mpoll-btn disagree" id="m-poll-disagree-btn" onclick="modalPoll('pollDisagree')">👎 Disagree</button>
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -648,33 +763,40 @@ footer a:hover {color: #fff;}
   </footer>
 
   <script>
-    const state = { page: 1, perPage: 6, currentTab: 'feed', modalId: null, voted: {}, downvoted: {}, pollVoted: {} };
+    const state = {
+      page: 1, perPage: 6, currentTab: 'feed', modalId: null,
+      voted: {}, downvoted: {}, polled: {}
+    };
     let joinPromiseResolve = null;
 
-    // Dark Mode function logic
-    function toggleTheme() {
-      if (document.documentElement.getAttribute('data-theme') === 'dark') {
-        document.documentElement.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        localStorage.setItem('theme', 'dark');
-      }
+    // ✨ ===================== DARK MODE =====================
+    function toggleDark() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const newTheme = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('ideasphere-theme', newTheme);
+      document.getElementById('dark-toggle-btn').textContent = newTheme === 'dark' ? '☀️' : '🌙';
     }
-    // Set theme on load
-    if (localStorage.getItem('theme') === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    }
+    // Init theme on load
+    (function(){
+      const saved = localStorage.getItem('ideasphere-theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('dark-toggle-btn');
+        if(btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+      });
+    })();
 
+    // ===================== TAB SWITCH =====================
     function switchTab(tabId) {
       state.currentTab = tabId;
       document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.bn-item').forEach(b => b.classList.remove('active'));
-      
       document.getElementById('tab-' + tabId).classList.add('active');
       const idx = ['feed', 'submit', 'leaderboard', 'profile'].indexOf(tabId);
       if(idx !== -1) document.querySelectorAll('.bottom-nav .bn-item')[idx].classList.add('active');
-      
       window.scrollTo(0,0);
       if(tabId === 'leaderboard' || tabId === 'profile') renderLeaderboardAndProfile();
     }
@@ -703,83 +825,119 @@ footer a:hover {color: #fff;}
       if(joinPromiseResolve) joinPromiseResolve({name: null, email: null});
     }
 
-    // Save customized Profile fields locally
-    function saveCustomProfile() {
-      const customName = document.getElementById('p-custom-name').value.trim();
-      const customBio = document.getElementById('p-custom-bio').value.trim();
-      if(customName) {
-        localStorage.setItem('p_custom_name', customName);
-        localStorage.setItem('p_custom_bio', customBio);
-        showToast('Profile updated locally! ✨', 'success');
-        if(window.__currentUser) {
-          window.__currentUser.displayName = customName;
-        }
-        window.updateAuthUI(window.__currentUser);
-      }
-    }
-
+    // ===================== AUTH UI =====================
     window.updateAuthUI = function(user) {
       const authNav = document.getElementById('auth-nav');
       const sideCard = document.getElementById('sidebar-profile-card');
-      const profTab = document.getElementById('profile-page-card');
-      
-      const localName = localStorage.getItem('p_custom_name');
-      const localBio = localStorage.getItem('p_custom_bio') || 'Community Innovator Context';
       
       if (user) {
-        const nameStr = localName || user.displayName || 'User';
-        const pImg = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nameStr)}&background=16a34a&color=fff`;
+        const nameStr = user.displayName || 'User';
+        // Check for saved custom name/bio in localStorage
+        const customData = getCustomProfile(user.email || user.uid);
+        const displayName = customData.name || nameStr;
+        const pImg = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=16a34a&color=fff`;
         
-        const navHtml = `<div class="user-nav"><img class="user-nav-img" src="${pImg}"><span class="user-nav-name">${nameStr.split(' ')[0]}</span><button class="logout-btn" onclick="logout()">Exit</button></div>`;
-        authNav.innerHTML = navHtml;
+        authNav.innerHTML = `<div class="user-nav"><img class="user-nav-img" src="${pImg}"><span class="user-nav-name">${displayName.split(' ')[0]}</span><button class="logout-btn" onclick="logout()">Exit</button></div>`;
+        if(sideCard) sideCard.innerHTML = `<div class="s-title">👤 Account</div><div class="user-profile-card"><img class="user-profile-img" src="${pImg}"><div><div class="user-profile-name">${displayName}</div><div class="user-profile-email">${user.email||''}</div><span class="logout-link" onclick="logout()">Sign Out</span></div></div>`;
         
-        const cardHtml = `<div class="s-title">👤 Account</div><div class="user-profile-card"><img class="user-profile-img" src="${pImg}"><div><div class="user-profile-name">${nameStr}</div><div class="user-profile-email">${user.email||''}</div><span class="logout-link" onclick="logout()">Sign Out</span></div></div>`;
-        if(sideCard) sideCard.innerHTML = cardHtml;
-        
-        const myIdeas = (window.__ideas || []).filter(i => i.ownerEmail === user.email);
-        const myVotes = myIdeas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
-        profTab.innerHTML = `
-          <div class="s-title">👤 Your Profile Dashboard</div>
-          <div class="user-profile-card" style="margin-bottom:1.25rem">
-            <img class="user-profile-img" style="width:50px;height:50px;" src="${pImg}">
-            <div style="flex-grow:1;">
-              <input type="text" id="p-custom-name" class="f-inp" value="${nameStr}" placeholder="Edit Public Name" style="margin-bottom:5px;">
-              <input type="text" id="p-custom-bio" class="f-inp" value="${localBio}" placeholder="Add your short Bio">
-              <button onclick="saveCustomProfile()" class="submit-btn" style="padding:4px 8px; font-size:0.7rem; margin-top:5px; width:auto;">Save Profile Changes</button>
-            </div>
-          </div>
-          <div class="modal-stats">
-            <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Published</div></div>
-            <div class="m-stat"><div class="m-stat-n">${myVotes}</div><div class="m-stat-l">Impact Upvotes</div></div>
-          </div>
-          <div style="margin-top:1rem">
-            <div class="comments-title">Your Active Pipeline Tracker</div>
-            ${myIdeas.length === 0 ? '<p class="login-sub">You have not submitted any ideas yet.</p>' : myIdeas.map(i => `
-              <div class="comment-item" style="margin-bottom:0.5rem; cursor:pointer;" onclick="openModal('${i.id}')">
-                <span class="status-badge ${getStatusClass(i.status)}" style="float:right">${i.status}</span>
-                <strong style="font-size:0.85rem">${esc(i.title)}</strong>
-              </div>
-            `).join('')}
-          </div>`;
+        renderProfileTab(user, displayName, pImg, customData);
       } else {
         authNav.innerHTML = `<button class="login-btn-nav" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In</button>`;
         if(sideCard) sideCard.innerHTML = `<div class="s-title">👤 Account</div><p class="login-sub">Login to submit ideas & get notifications!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
+        const profTab = document.getElementById('profile-page-card');
         profTab.innerHTML = `<div class="s-title">👤 Your Profile</div><p class="login-sub">Sign in to see your profile metrics and active pipeline data tracking!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
       }
       if(window.__ideas) renderFeed();
     };
 
+    // ✨ ===================== CUSTOM PROFILE (localStorage) =====================
+    function getCustomProfile(uid) {
+      try { return JSON.parse(localStorage.getItem('ideasphere-profile-' + uid) || '{}'); }
+      catch(e) { return {}; }
+    }
+    function saveCustomProfile(uid, data) {
+      localStorage.setItem('ideasphere-profile-' + uid, JSON.stringify(data));
+    }
+
+    function renderProfileTab(user, displayName, pImg, customData) {
+      const profTab = document.getElementById('profile-page-card');
+      const myIdeas = (window.__ideas || []).filter(i => i.ownerEmail === user.email);
+      const myVotes = myIdeas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
+      profTab.innerHTML = `
+        <div class="s-title">👤 Your Profile Dashboard</div>
+        <div class="user-profile-card" style="margin-bottom:1.5rem">
+          <img class="user-profile-img" style="width:50px;height:50px;" src="${pImg}">
+          <div>
+            <div class="user-profile-name" style="font-size:1.1rem" id="profile-display-name">${esc(displayName)}</div>
+            <div class="user-profile-email" style="font-size:0.8rem">${user.email||''}</div>
+            ${customData.bio ? `<div style="font-size:0.75rem;color:var(--muted);margin-top:2px;font-style:italic">"${esc(customData.bio)}"</div>` : ''}
+          </div>
+        </div>
+        <div class="modal-stats">
+          <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Published</div></div>
+          <div class="m-stat"><div class="m-stat-n">${myVotes}</div><div class="m-stat-l">Impact Upvotes</div></div>
+        </div>
+        <div style="margin-top:1rem">
+          <div class="comments-title">Your Active Pipeline</div>
+          ${myIdeas.length === 0 ? '<p class="login-sub">You have not submitted any ideas yet.</p>' : myIdeas.map(i => `
+            <div class="comment-item" style="margin-bottom:0.5rem; cursor:pointer;" onclick="openModal('${i.id}')">
+              <span class="status-badge ${getStatusClass(i.status)}" style="float:right">${i.status}</span>
+              <strong style="font-size:0.85rem">${esc(i.title)}</strong>
+            </div>
+          `).join('')}
+        </div>
+
+        <!-- ✨ LIVE PROFILE EDITOR -->
+        <div class="profile-edit-section">
+          <div class="profile-edit-title">✏️ Edit Your Public Profile</div>
+          <div class="edit-field">
+            <label class="f-label">Display Name</label>
+            <input type="text" id="edit-name-inp" class="f-inp" value="${esc(customData.name || displayName)}" maxlength="50" placeholder="Your public name">
+          </div>
+          <div class="edit-field">
+            <label class="f-label">Bio <span style="font-weight:400;text-transform:none">(short tagline)</span></label>
+            <input type="text" id="edit-bio-inp" class="f-inp" value="${esc(customData.bio || '')}" maxlength="120" placeholder="e.g. Student · Climate Activist · Mumbai">
+          </div>
+          <button class="save-profile-btn" id="save-profile-btn" onclick="saveProfile('${user.email || user.uid}')">💾 Save Profile</button>
+          <span class="profile-saved-badge" id="profile-saved-badge">✅ Saved!</span>
+        </div>`;
+    }
+
+    function saveProfile(uid) {
+      const nameVal = (document.getElementById('edit-name-inp')?.value || '').trim();
+      const bioVal = (document.getElementById('edit-bio-inp')?.value || '').trim();
+      if(!nameVal) { showToast('Name cannot be empty!', 'error'); return; }
+      
+      saveCustomProfile(uid, { name: nameVal, bio: bioVal });
+      
+      // Update display name in Firebase user object (in memory only for local)
+      if(window.__currentUser) {
+        window.__currentUser._customDisplayName = nameVal;
+      }
+      
+      // Reflect immediately in profile heading
+      const displayEl = document.getElementById('profile-display-name');
+      if(displayEl) displayEl.textContent = nameVal;
+      
+      // Show saved badge
+      const badge = document.getElementById('profile-saved-badge');
+      if(badge) { badge.style.display = 'inline'; setTimeout(() => badge.style.display = 'none', 2500); }
+      
+      // Re-render auth UI with new name
+      if(window.__currentUser) window.updateAuthUI(window.__currentUser);
+      showToast('✅ Profile updated successfully!', 'success');
+    }
+
+    // ===================== RENDER ALL =====================
     window.renderAll = function() {
       const totalIdeas = window.__ideas.length;
       const totalVotes = window.__ideas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
       const uniqueCountries = new Set(window.__ideas.map(i => i.country).filter(Boolean));
       const totalImplemented = window.__ideas.filter(i => i.status === 'Implemented').length;
-
       document.getElementById('stat-ideas-ui').textContent = totalIdeas;
-      document.getElementById('stat-countries-ui').textContent = uniqueCountries.size || 1; 
+      document.getElementById('stat-countries-ui').textContent = uniqueCountries.size || 1;
       document.getElementById('stat-votes-ui').textContent = totalVotes;
       document.getElementById('stat-implemented-ui').textContent = totalImplemented;
-
       renderFeed();
       renderSidebars();
       if(state.currentTab === 'leaderboard' || state.currentTab === 'profile') renderLeaderboardAndProfile();
@@ -797,21 +955,7 @@ footer a:hover {color: #fff;}
       return 'status-review';
     }
 
-    // Direct Integration of Poll Actions
-    window.submitPollVote = async function(id, type, ev) {
-      if(ev) ev.stopPropagation();
-      if(state.pollVoted[id]) {
-        showToast('You have already voted in this poll!', 'error');
-        return;
-      }
-      state.pollVoted[id] = true;
-      const field = (type === 'agree') ? 'agreeVotes' : 'disagreeVotes';
-      if(window.__voteIdea) {
-        await window.__voteIdea(id, field, 1);
-        showToast('Poll vote submitted successfully! 🗳️', 'success');
-      }
-    }
-
+    // ===================== RENDER FEED =====================
     function renderFeed() {
       const container = document.getElementById('ideas-container');
       if(!window.__ideas || window.__ideas.length === 0) {
@@ -836,7 +980,6 @@ footer a:hover {color: #fff;}
 
       document.getElementById('feed-count-ui').textContent = `${list.length} ideas verified`;
 
-      const totalItems = list.length;
       const maxToShow = state.page * state.perPage;
       const chunk = list.slice(0, maxToShow);
 
@@ -853,20 +996,17 @@ footer a:hover {color: #fff;}
         const dnVoted = state.downvoted[i.id] ? 'downed' : '';
         const isMine = window.__currentUser?.email && i.ownerEmail === window.__currentUser.email;
         const init = (i.ownerName || 'A').charAt(0).toUpperCase();
-        
-        // Media and External URL support logic renders here safely
-        let mediaSnippet = i.mediaUrl ? `<img src="${esc(i.mediaUrl)}" class="card-media-preview" onerror="this.style.display='none'">` : '';
-        let linkSnippet = i.linkUrl ? `<span onclick="event.stopPropagation()"><a href="${esc(i.linkUrl)}" target="_blank" class="card-link-preview">🔗 Project Web link</a></span>` : '';
-        
-        // Poll Dynamic Rendering template UI logic
-        let agreeCount = i.agreeVotes || 0;
-        let disagreeCount = i.disagreeVotes || 0;
-        let pollSnippet = `
-          <div class="card-poll-box" onclick="event.stopPropagation()">
-            <strong>Community Poll:</strong>
-            <button class="poll-mini-btn" onclick="submitPollVote('${i.id}', 'agree', event)">👍 Agree (${agreeCount})</button>
-            <button class="poll-mini-btn" onclick="submitPollVote('${i.id}', 'disagree', event)">👎 Disagree (${disagreeCount})</button>
-          </div>`;
+
+        // ✨ Poll bar rendering
+        const totalPoll = (i.pollAgree || 0) + (i.pollDisagree || 0);
+        const agreePct = totalPoll > 0 ? Math.round(((i.pollAgree||0) / totalPoll) * 100) : 50;
+        const disagreePct = 100 - agreePct;
+        const myPoll = state.polled[i.id];
+        const agreeClass = myPoll === 'pollAgree' ? 'polled' : '';
+        const disagreeClass = myPoll === 'pollDisagree' ? 'polled' : '';
+
+        // ✨ Image
+        const imgHtml = i.imgUrl ? `<img class="card-img" src="${esc(i.imgUrl)}" alt="Idea image" onerror="this.style.display='none'">` : '';
 
         return `
           <div class="idea-card" onclick="openModal('${i.id}')">
@@ -883,10 +1023,28 @@ footer a:hover {color: #fff;}
                   ${isMine ? '<span class="tag tag-mine">Mine</span>' : ''}
                 </div>
                 <h3 class="card-title">${esc(i.title)}</h3>
+                ${imgHtml}
                 <p class="card-desc">${esc(i.desc)}</p>
-                ${mediaSnippet}
-                ${linkSnippet}
-                ${pollSnippet}
+
+                <!-- ✨ POLL ON CARD -->
+                <div class="card-poll" onclick="event.stopPropagation()">
+                  <div class="card-poll-label">📊 Community Poll</div>
+                  <div class="poll-bar-row">
+                    <span style="font-size:0.65rem;width:52px;color:var(--green);font-weight:600;">👍 Agree</span>
+                    <div class="poll-bar-bg"><div class="poll-bar-agree" style="width:${agreePct}%"></div></div>
+                    <span class="poll-pct agree-pct">${agreePct}%</span>
+                  </div>
+                  <div class="poll-bar-row">
+                    <span style="font-size:0.65rem;width:52px;color:var(--red);font-weight:600;">👎 Disagree</span>
+                    <div class="poll-bar-bg"><div class="poll-bar-disagree" style="width:${disagreePct}%"></div></div>
+                    <span class="poll-pct disagree-pct">${disagreePct}%</span>
+                  </div>
+                  <div class="poll-actions">
+                    <button class="poll-btn agree-btn ${agreeClass}" onclick="cardPoll('${i.id}','pollAgree',event)">👍 ${i.pollAgree||0}</button>
+                    <button class="poll-btn disagree-btn ${disagreeClass}" onclick="cardPoll('${i.id}','pollDisagree',event)">👎 ${i.pollDisagree||0}</button>
+                  </div>
+                </div>
+
                 <div class="card-foot">
                   <div class="author-row">
                     <div class="avatar" style="background:#4a5568">${init}</div>
@@ -894,6 +1052,7 @@ footer a:hover {color: #fff;}
                   </div>
                   <div class="card-meta">
                     <span class="meta-chip">💬 ${i.comments?.length || 0} responses</span>
+                    ${i.webLink ? `<a href="${esc(i.webLink)}" target="_blank" onclick="event.stopPropagation()" style="font-size:0.68rem;color:var(--blue);text-decoration:none;">🔗 Link</a>` : ''}
                   </div>
                 </div>
               </div>
@@ -901,15 +1060,15 @@ footer a:hover {color: #fff;}
           </div>`;
       }).join('');
 
-      document.getElementById('load-more-btn').style.display = maxToShow < totalItems ? 'block' : 'none';
+      document.getElementById('load-more-btn').style.display = maxToShow < list.length ? 'block' : 'none';
     }
 
     function loadMore() { state.page++; renderFeed(); }
 
+    // ===================== VOTE =====================
     async function vote(id, field, ev) {
       if(ev) ev.stopPropagation();
       if(!window.__voteIdea) return;
-      
       if(field === 'votes') {
         if(state.voted[id]) return;
         state.voted[id] = true;
@@ -921,7 +1080,6 @@ footer a:hover {color: #fff;}
         if(state.voted[id]) { delete state.voted[id]; await window.__voteIdea(id, 'votes', -1); }
         await window.__voteIdea(id, 'downvotes', 1);
       }
-      
       const target = (window.__ideas||[]).find(i=>i.id===id);
       if(target?.ownerEmail && window.__sendNotif) {
         window.__sendNotif(target.ownerEmail, target.title, window.__currentUser?.displayName || 'An anonymous citizen', field === 'votes' ? 'vote' : 'downvote');
@@ -929,6 +1087,49 @@ footer a:hover {color: #fff;}
       showToast('Interaction synchronized!','success');
     }
 
+    // ✨ ===================== POLL =====================
+    async function cardPoll(id, field, ev) {
+      if(ev) ev.stopPropagation();
+      if(!window.__pollVote) return;
+      if(state.polled[id]) { showToast('You already voted in this poll!', ''); return; }
+      state.polled[id] = field;
+      await window.__pollVote(id, field);
+      showToast(field === 'pollAgree' ? '👍 You agreed!' : '👎 You disagreed!', 'success');
+    }
+
+    async function modalPoll(field) {
+      if(!state.modalId) return;
+      await cardPoll(state.modalId, field, null);
+      // Update modal poll UI
+      const fresh = window.__ideas.find(i => i.id === state.modalId);
+      if(fresh) renderModalPoll(fresh);
+    }
+
+    function renderModalPoll(idea) {
+      const totalPoll = (idea.pollAgree || 0) + (idea.pollDisagree || 0);
+      const agreePct = totalPoll > 0 ? Math.round(((idea.pollAgree||0)/totalPoll)*100) : 50;
+      const disagreePct = 100 - agreePct;
+      const myPoll = state.polled[idea.id];
+
+      document.getElementById('m-poll-bars').innerHTML = `
+        <div class="mpoll-row">
+          <span class="mpoll-label" style="color:var(--green)">👍 Agree</span>
+          <div class="mpoll-bar-bg"><div class="mpoll-bar-fill" style="width:${agreePct}%;background:var(--green)"></div></div>
+          <span class="mpoll-pct" style="color:var(--green)">${agreePct}% (${idea.pollAgree||0})</span>
+        </div>
+        <div class="mpoll-row">
+          <span class="mpoll-label" style="color:var(--red)">👎 Disagree</span>
+          <div class="mpoll-bar-bg"><div class="mpoll-bar-fill" style="width:${disagreePct}%;background:var(--red)"></div></div>
+          <span class="mpoll-pct" style="color:var(--red)">${disagreePct}% (${idea.pollDisagree||0})</span>
+        </div>`;
+      
+      const agreeBtn = document.getElementById('m-poll-agree-btn');
+      const disagreeBtn = document.getElementById('m-poll-disagree-btn');
+      if(agreeBtn) agreeBtn.className = 'mpoll-btn agree' + (myPoll === 'pollAgree' ? ' active' : '');
+      if(disagreeBtn) disagreeBtn.className = 'mpoll-btn disagree' + (myPoll === 'pollDisagree' ? ' active' : '');
+    }
+
+    // ===================== SIDEBARS =====================
     function renderSidebars() {
       const ideas = window.__ideas || [];
       const trends = {};
@@ -947,10 +1148,10 @@ footer a:hover {color: #fff;}
         </div>`).join('');
     }
 
+    // ===================== LEADERBOARD =====================
     function renderLeaderboardAndProfile() {
       const ideas = [...(window.__ideas || [])];
       ideas.sort((a,b) => (b.votes||0) - (a.votes||0));
-      
       document.getElementById('lb-ideas').innerHTML = ideas.slice(0, 4).map((i, idx) => `
         <div class="lb-item" onclick="openModal('${i.id}')" style="cursor:pointer">
           <div class="lb-rank ${idx===0?'gold':(idx===1?'silver':(idx===2?'bronze':''))}">${idx+1}</div>
@@ -972,22 +1173,31 @@ footer a:hover {color: #fff;}
           <div class="lb-info"><div class="lb-name">${esc(u.name || 'Contributor')}</div><div class="lb-sub">${u.count} active scale projects published</div></div>
           <div class="lb-score">${u.score} pts</div>
         </div>`).join('');
+
+      // Also refresh profile tab if user is logged in
+      if(window.__currentUser && state.currentTab === 'profile') {
+        const u = window.__currentUser;
+        const customData = getCustomProfile(u.email || u.uid);
+        const displayName = customData.name || u.displayName || 'User';
+        const pImg = u.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=16a34a&color=fff`;
+        renderProfileTab(u, displayName, pImg, customData);
+      }
     }
 
+    // ===================== FORM SUBMIT =====================
     async function handleFormSubmit(e) {
       e.preventDefault();
       const btn = document.getElementById('form-sub-btn');
       btn.disabled = true;
       
-      // Captured Media & Link Fields directly here
       const idea = {
         title: document.getElementById('f-title').value.trim(),
         desc: document.getElementById('f-desc').value.trim(),
-        mediaUrl: document.getElementById('f-mediaUrl').value.trim(),
-        linkUrl: document.getElementById('f-linkUrl').value.trim(),
         category: document.getElementById('f-cat').value,
         country: document.getElementById('f-country').value,
-        author: localStorage.getItem('p_custom_name') || document.getElementById('f-author').value.trim() || 'Anonymous'
+        author: document.getElementById('f-author').value.trim() || 'Anonymous',
+        imgUrl: document.getElementById('f-imgurl').value.trim() || '',
+        webLink: document.getElementById('f-weblink').value.trim() || ''
       };
 
       try {
@@ -1006,6 +1216,7 @@ footer a:hover {color: #fff;}
       }
     }
 
+    // ===================== MODAL =====================
     function openModal(id) {
       state.modalId = id;
       const target = window.__ideas.find(i=>i.id === id);
@@ -1030,9 +1241,36 @@ footer a:hover {color: #fff;}
       document.getElementById('m-auth-sub').textContent = `Innovator context · 📍 ${idea.country || 'Global pipeline'}`;
       document.getElementById('m-avatar').textContent = (idea.ownerName || 'A').charAt(0).toUpperCase();
       document.getElementById('m-tags').innerHTML = `<span class="tag tag-${idea.category}">${idea.category}</span><span class="status-badge ${getStatusClass(idea.status)}">${idea.status}</span>`;
-      
       document.getElementById('m-btn-wa').href = `https://api.whatsapp.com/send?text=${encodeURIComponent('Check out this incredible community solution platform proposal on IdeaSphere: ' + idea.title + ' — https://ideasphere-debug.github.io/ideasphere/')}`;
 
+      // ✨ Image in modal
+      const mImg = document.getElementById('m-img');
+      if(idea.imgUrl) {
+        mImg.src = idea.imgUrl;
+        mImg.style.display = 'block';
+        mImg.onerror = () => { mImg.style.display = 'none'; };
+      } else {
+        mImg.style.display = 'none';
+      }
+
+      // ✨ Web link in modal
+      const mLinkRow = document.getElementById('m-link-row');
+      const mLink = document.getElementById('m-link');
+      const mLinkText = document.getElementById('m-link-text');
+      if(idea.webLink) {
+        mLinkRow.style.display = 'block';
+        mLink.href = idea.webLink;
+        try {
+          const urlObj = new URL(idea.webLink);
+          mLinkText.textContent = urlObj.hostname;
+        } catch(e) {
+          mLinkText.textContent = 'View Reference';
+        }
+      } else {
+        mLinkRow.style.display = 'none';
+      }
+
+      // Admin panel
       const adminPanel = document.getElementById('m-admin-panel');
       if(window.__currentUser && (window.__currentUser.email === idea.ownerEmail || window.__currentUser.email === 'ideaspherecontact0@gmail.com')) {
         adminPanel.style.display = 'block';
@@ -1041,8 +1279,12 @@ footer a:hover {color: #fff;}
         adminPanel.style.display = 'none';
       }
 
+      // Vote button states
       document.getElementById('m-btn-vote').className = state.voted[idea.id] ? 'm-vote-btn voted-m' : '';
       document.getElementById('m-btn-down').className = state.downvoted[idea.id] ? 'm-dn-btn downed-m' : 'm-dn-btn';
+
+      // ✨ Render poll in modal
+      renderModalPoll(idea);
 
       renderComments(idea);
     }
@@ -1080,10 +1322,8 @@ footer a:hover {color: #fff;}
       const inp = document.getElementById('cmt-input');
       const text = inp.value.trim();
       if(!text || !state.modalId || !window.__addComment) return;
-      
-      const name = localStorage.getItem('p_custom_name') || window.__currentUser?.displayName || document.getElementById('f-author').value.trim() || 'Anonymous Innovator';
+      const name = window.__currentUser?.displayName || document.getElementById('f-author').value.trim() || 'Anonymous Innovator';
       const idea = (window.__ideas || []).find(i => i.id === state.modalId);
-      
       try {
         await window.__addComment(state.modalId, { name, text, ts: Date.now() });
         if(idea?.ownerEmail && window.__sendNotif) {
@@ -1112,4 +1352,3 @@ footer a:hover {color: #fff;}
   </script>
 </body>
 </html>
-
