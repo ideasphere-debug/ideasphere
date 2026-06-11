@@ -1,357 +1,1115 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Idea Platform</title>
-    <style>
-        /* Base Styling & Variables */
-        :root {
-            --bg-color: #f4f7f6;
-            --card-bg: #ffffff;
-            --text-color: #333333;
-            --primary-color: #4a90e2;
-            --border-color: #e0e0e0;
-            --accent-color: #2ecc71;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IdeaSphere — Global Community Ideas Platform</title>
+<meta name="description" content="Share your ideas with the world! IdeaSphere is a free platform where students and citizens from 87+ countries vote and grow ideas that make our world better."/>
+<meta property="og:title" content="IdeaSphere — Global Community Ideas Platform"/>
+<meta property="og:description" content="Join 87+ countries sharing world-changing ideas. Free forever!"/>
+<meta property="og:url" content="https://ideasphere-debug.github.io/ideasphere/"/>
+<meta property="og:type" content="website"/>
+<meta name="google-site-verification" content="5zttx5DSrOtcwkjMOY8w1NQTLtyaaYLFzSG-WnV1S5U" />
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-QHNHW4C04L"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-QHNHW4C04L');</script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  
+  const firebaseConfig = {
+    apiKey: "AIzaSyABFq1tpVgWX-EmtBaY0_0UxjwRt5PYRWU",
+    authDomain: "ideasphere-edc0d.firebaseapp.com",
+    projectId: "ideasphere-edc0d",
+    storageBucket: "ideasphere-edc0d.firebasestorage.app",
+    messagingSenderId: "450267293030",
+    appId: "1:450267293030:web:65e6ca377d9477e2c954a7"
+  };
 
-        [data-theme="dark"] {
-            --bg-color: #1a1a1a;
-            --card-bg: #2d2d2d;
-            --text-color: #ffffff;
-            --border-color: #444444;
-            --primary-color: #357abd;
-        }
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+  window.__db = db;
+  window.__firebase = { collection, addDoc, doc, updateDoc, increment, query, orderBy, onSnapshot, arrayUnion };
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 20px;
-            transition: background-color 0.3s, color 0.3s;
-        }
+  // Track state change dynamically
+  onAuthStateChanged(auth, u => {
+    if (u) {
+      localStorage.removeItem('is_local_user');
+      window.__currentUser = u;
+    } else {
+      const savedUser = localStorage.getItem('is_local_user');
+      if (savedUser) {
+        try { window.__currentUser = JSON.parse(savedUser); } catch(e) { window.__currentUser = null; }
+      } else {
+        window.__currentUser = null;
+      }
+    }
+    if(window.updateAuthUI) window.updateAuthUI(window.__currentUser);
+  });
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
+  // Real Google Sign In function with local modal backup
+  window.__loginGoogle = async () => {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      localStorage.removeItem('is_local_user');
+      window.__currentUser = result.user;
+      if(window.updateAuthUI) window.updateAuthUI(result.user);
+      if(window.showToast) window.showToast(`Welcome, ${result.user.displayName?.split(' ')[0]}! 🎉`, 'success');
+    } catch(error) {
+      console.log("Firebase popup failed, triggering custom modal fallback...", error);
+      if(!window.showJoinModal) return;
+      const { name, email } = await window.showJoinModal();
+      if(!name) return;
+      const fakeUser = {
+        displayName: name.trim(),
+        email: email.trim(),
+        photoURL: null,
+        uid: 'local_' + Date.now()
+      };
+      localStorage.setItem('is_local_user', JSON.stringify(fakeUser));
+      window.__currentUser = fakeUser;
+      if(window.updateAuthUI) window.updateAuthUI(fakeUser);
+      if(window.showToast) window.showToast('Welcome, '+fakeUser.displayName+'! 🎉', 'success');
+    }
+  };
 
-        /* Header & Settings */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
+  window.__logout = async () => {
+    localStorage.removeItem('is_local_user');
+    window.__currentUser = null;
+    try { await signOut(auth); } catch(e){}
+    if(window.updateAuthUI) window.updateAuthUI(null);
+    if(window.showToast) window.showToast('Logged out successfully', 'success');
+  };
 
-        .btn-theme {
-            padding: 10px 15px;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-        }
+  const q = query(collection(db, "ideas"), orderBy("ts", "desc"));
+  onSnapshot(q, snap => { 
+    window.__ideas=[]; 
+    snap.forEach(d=>window.__ideas.push({id:d.id,...d.data()})); 
+    if(window.renderAll) window.renderAll(); 
+  });
 
-        /* Personalization: Profile Card */
-        .profile-card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
+  window.__submitIdea = async idea => { 
+    const r = await addDoc(collection(db,"ideas"),{
+      ...idea,
+      ts:{seconds:Math.floor(Date.now()/1000)},
+      votes:0,
+      downvotes:0,
+      agreeVotes:0,
+      disagreeVotes:0,
+      comments:[],
+      reach:1,
+      status:'Under Review',
+      ownerEmail:window.__currentUser?.email||'',
+      ownerName:window.__currentUser?.displayName||idea.author
+    }); 
+    if(window.sendIdeaNotification) window.sendIdeaNotification(idea.title,window.__currentUser?.displayName||idea.author,window.__currentUser?.email||''); 
+    return r.id; 
+  };
 
-        .profile-img {
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            background-color: #ccc;
-            object-fit: cover;
-        }
+  window.__voteIdea = async (id,field,val) => { const u = {}; u[field]=increment(val); await updateDoc(doc(db,"ideas",id),u); };
+  window.__addComment = async (id,cmt) => { await updateDoc(doc(db,"ideas",id),{comments:arrayUnion(cmt)}); };
+  
+  // SECURED Backend state configuration trigger
+  window.__updateStatus = async (id,status) => { 
+    const idea = (window.__ideas || []).find(i => i.id === id);
+    if (!idea) return;
+    if (window.__currentUser?.email === idea.ownerEmail || window.__currentUser?.email === 'ideaspherecontact0@gmail.com') {
+      await updateDoc(doc(db,"ideas",id),{status}); 
+    } else {
+      throw new Error("Unauthorized access configuration modification.");
+    }
+  };
+  
+  window.__dbReady = true;
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+<script>
+  (function(){
+    emailjs.init("NX-Nh_CaDvJLi357V");
+    window.__sendNotif=async(to,title,name,type)=>{
+      if(!to)return;
+      try{
+        await emailjs.send("service_tlgp8gj","template_maj59l",{
+          to_email:to,
+          idea_title:title,
+          name:name||"Someone",
+          type,
+          message:type==="vote"?`${name} upvoted your idea "${title}"!`:`${name} commented on "${title}"!`,
+          email:"noreply@ideasphere.com",
+          time:new Date().toLocaleString()
+        });
+      }catch(e){console.error(e);}
+    };
+  })();
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#0f1117;--ink2:#2d2d3a;--muted:#888;--cream:#f7f8fc;--white:#fff;
+  --border:rgba(15,17,23,0.08);--border2:rgba(15,17,23,0.15);
+  --green:#16a34a;--green-l:#22c55e;--green-bg:#dcfce7;
+  --blue:#2563eb;--blue-bg:#dbeafe;--red:#dc2626;--red-bg:#fee2e2;
+  --amber:#d97706;--amber-bg:#fef3c7;--purple:#7c3aed;--purple-bg:#ede9fe;
+  --teal:#0d9488;--teal-bg:#ccfbf1;--orange:#ea580c;--orange-bg:#ffedd5;
+  --shadow:0 1px 12px rgba(15,17,23,0.06);--shadow2:0 8px 32px rgba(15,17,23,0.12);
+  --r:12px;--r2:18px;
+}
 
-        .profile-info input, .profile-info textarea {
-            background: transparent;
-            color: var(--text-color);
-            border: 1px solid var(--border-color);
-            padding: 5px;
-            border-radius: 4px;
-            width: 100%;
-            margin-bottom: 5px;
-        }
+/* Naya Theme Configuration for Dark Mode */
+[data-theme="dark"] {
+  --ink:#ffffff;--ink2:#e2e8f0;--muted:#a0aec0;--cream:#121214;--white:#1e1e24;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.18);
+  --shadow:0 1px 12px rgba(0,0,0,0.25);--shadow2:0 8px 32px rgba(0,0,0,0.4);
+}
 
-        /* Idea Form Box */
-        .idea-form {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
+html{scroll-behavior:smooth}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.6;min-height:100vh;padding-bottom:90px;transition: background-color 0.3s, color 0.3s;}
+.nav{position:sticky;top:0;z-index:50;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:56px;gap:0.5rem;}
+.logo{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:7px;text-decoration:none;}
+.logo-dot{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--green-l),#4ade80);display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;}
+.nav-right{display:flex;align-items:center;gap:0.5rem;}
+.nav-btn{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.theme-btn-nav {background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;}
 
-        .idea-form textarea, .idea-form input {
-            width: 100%;
-            padding: 12px;
-            box-sizing: border-box;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
+.user-nav{display:flex;align-items:center;gap:6px;}
+.user-nav-img{width:26px;height:26px;border-radius:50%;border:2px solid var(--green-l);object-fit:cover;}
+.user-nav-name{color:#fff;font-size:0.75rem;font-weight:500;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.logout-btn{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.15);padding:4px 8px;border-radius:12px;font-size:0.7rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.login-btn-nav{background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:4px;}
+.hero{background:linear-gradient(135deg,#0f1117 0%,#1a1f2e 50%,#0f2a1a 100%);color:#fff;padding:3.5rem 1.25rem 2.5rem;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 20% 50%,rgba(34,197,94,0.12),transparent 60%),radial-gradient(ellipse 50% 60% at 80% 30%,rgba(37,99,235,0.1),transparent 60%);pointer-events:none;}
+.hero-inner{position:relative;max-width:680px;margin:0 auto}
+.hero-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:rgba(255,255,255,0.9);font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:20px;margin-bottom:1rem;letter-spacing:0.3px;}
+.hero h1{font-family:'Fraunces',serif;font-size:clamp(1.7rem,5vw,2.8rem);font-weight:700;line-height:1.1;letter-spacing:-0.5px;margin-bottom:0.9rem;}
+.hero h1 em{color:#4ade80;font-style:italic}
+.hero-sub{font-size:0.9rem;color:rgba(255,255,255,0.55);max-width:460px;margin:0 auto 1.8rem;}
+.hero-cta{display:flex;gap:0.65rem;justify-content:center;flex-wrap:wrap}
+.btn-hp{background:var(--green);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all 0.2s;}
+.btn-hp:hover{background:var(--green-l);transform:translateY(-1px)}
+.btn-hs{background:transparent;color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);padding:10px 22px;border-radius:8px;font-size:0.88rem;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;}
+.stats-bar{background:var(--white);border-bottom:1px solid var(--border);display:flex;justify-content:center;flex-wrap:wrap;}
+.stat-item{padding:0.9rem 1.5rem;text-align:center;border-right:1px solid var(--border);}
+.stat-item:last-child{border-right:none}
+.stat-n{font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;color:var(--green);line-height:1}
+.stat-l{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;z-index:40;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;color:var(--muted);font-size:0.6rem;font-weight:500;gap:3px;transition:color 0.2s;}
+.bn-item.active{color:var(--green)}
+.bn-icon{font-size:1.15rem}
+.bn-item.active .bn-icon{transform:scale(1.1)}
+.page-tab{display:none}
+.page-tab.active{display:block}
+.page{max-width:1160px;margin:0 auto;padding:1.5rem 1rem}
+.layout{display:grid;grid-template-columns:1fr 290px;gap:1.5rem;align-items:start}
+@media(max-width:860px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
+.search-panel{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow);}
+.search-panel-title{font-family:'Fraunces',serif;font-size:0.95rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
+.search-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;}
+@media(max-width:600px){.search-grid{grid-template-columns:1fr}}
+.s-inp,.s-sel{width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
+.s-inp:focus,.s-sel:focus{border-color:var(--green);background:var(--white)}
+.search-full{grid-column:1/-1}
+.search-btn{background:var(--green);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;}
+.clear-btn{background:var(--cream);color:var(--muted);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;cursor:pointer;}
+.feed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem}
+.feed-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600}
+.feed-count{font-size:0.78rem;color:var(--muted);background:var(--cream);padding:3px 10px;border-radius:12px;}
+.sort-sel{padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;background:var(--white);color:var(--ink);outline:none;cursor:pointer;}
+.ideas-feed{display:flex;flex-direction:column;gap:0.85rem}
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-size:0.67rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;}
+.status-review{background:#fef3c7;color:#92400e;}
+.status-approved{background:#dbeafe;color:#1d4ed8;}
+.status-implemented{background:#dcfce7;color:#15803d;}
+.status-rejected{background:#fee2e2;color:#991b1b;}
+.idea-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1.1rem 1.2rem;box-shadow:var(--shadow);transition:all 0.2s;cursor:pointer;animation:fadeUp 0.3s ease both;position:relative;}
+.idea-card:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--border2)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card-head{display:flex;gap:0.7rem;align-items:flex-start}
+.vote-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0;padding-top:2px;}
+.vote-up,.vote-dn{width:30px;height:28px;border-radius:6px;border:1px solid var(--border2);background:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.8rem;color:var(--muted);transition:all 0.15s;font-weight:700;}
+.vote-up:hover,.vote-up.voted{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.vote-dn:hover,.vote-dn.downed{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.vote-score{font-size:0.82rem;font-weight:700;color:var(--ink);line-height:1;text-align:center;min-width:24px;}
+.vote-score.positive{color:var(--green)}
+.vote-score.negative{color:var(--red)}
+.card-body{flex:1;min-width:0}
+.card-tags{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px;align-items:center;}
+.tag{display:inline-block;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;padding:2px 7px;border-radius:4px}
+.tag-env{background:var(--green-bg);color:var(--green)}.tag-edu{background:var(--blue-bg);color:var(--blue)}.tag-health{background:var(--red-bg);color:var(--red)}.tag-tech{background:var(--amber-bg);color:var(--amber)}.tag-social{background:var(--purple-bg);color:var(--purple)}.tag-food{background:var(--teal-bg);color:var(--teal)}.tag-new{background:#fef9c3;color:#854d0e;font-size:0.6rem}
+.tag-mine{background:#e0f2fe;color:#0369a1;font-size:0.6rem}
+.card-title{font-family:'Fraunces',serif;font-size:0.97rem;font-weight:600;margin-bottom:4px;line-height:1.3}
+.card-desc{font-size:0.8rem;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
-        .idea-form button {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 12px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            width: 100%;
-        }
+/* Custom Image support css */
+.card-media-preview {width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin: 8px 0;}
+.card-link-preview {display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--blue); text-decoration:none; margin-bottom:8px;}
 
-        /* Idea Display Post Card */
-        .idea-card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        }
+/* Poll element styles */
+.card-poll-box {background:var(--cream); padding:8px 12px; border-radius:8px; margin:8px 0; font-size:0.75rem; display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.poll-mini-btn {background:var(--white); border:1px solid var(--border2); padding:3px 8px; border-radius:6px; cursor:pointer; font-weight:600; color:var(--ink); font-family:'Plus Jakarta Sans',sans-serif;}
+.poll-mini-btn:hover {background:var(--green-bg); border-color:var(--green);}
 
-        .card-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
+.card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:0.75rem;flex-wrap:wrap;gap:0.35rem}
+.author-row{display:flex;align-items:center;gap:5px}
+.avatar{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;color:#fff;flex-shrink:0;}
+.author-name{font-size:0.72rem;color:var(--muted)}
+.card-meta{display:flex;gap:0.6rem}
+.meta-chip{font-size:0.68rem;color:var(--muted)}
+.wa-btn{background:#25D366;color:#fff;border:none;padding:4px 9px;border-radius:5px;font-size:0.68rem;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:3px;text-decoration:none;}
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
+.empty-icon{font-size:2rem;margin-bottom:0.5rem}
+.load-more-btn{width:100%;margin-top:0.85rem;padding:9px;background:var(--white);border:1px solid var(--border2);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:500;color:var(--muted);cursor:pointer;}
+.sidebar{display:flex;flex-direction:column;gap:0.9rem}
+.s-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow)}
+.s-title{font-family:'Fraunces',serif;font-size:0.88rem;font-weight:600;margin-bottom:0.8rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;}
+.google-login-btn{background:#fff;color:#333;border:1px solid var(--border2);padding:8px 14px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
+.google-login-btn:hover{background:var(--cream)}
+.login-sub{font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;text-align:center;}
+.user-profile-card{display:flex;align-items:center;gap:9px;}
+.user-profile-img{width:36px;height:36px;border-radius:50%;border:2px solid var(--green);object-fit:cover;}
+.user-profile-name{font-size:0.85rem;font-weight:600}
+.user-profile-email{font-size:0.68rem;color:var(--muted)}
+.logout-link{font-size:0.72rem;color:var(--red);cursor:pointer;text-decoration:underline;margin-top:0.4rem;display:inline-block;}
+.form{display:flex;flex-direction:column;gap:0.6rem}
+.f-label{font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:1px;display:block}
+.f-inp,.f-ta,.f-sel{width:100%;border:1px solid var(--border2);border-radius:7px;padding:7px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--cream);outline:none;}
+.f-inp:focus,.f-ta:focus,.f-sel:focus{border-color:var(--green);background:var(--white)}
+.f-ta{resize:vertical;min-height:70px}
+.f-inp.error,.f-ta.error,.f-sel.error{border-color:var(--red)}
+.char-count{font-size:0.65rem;color:var(--muted);text-align:right;margin-top:1px}
+.submit-btn{background:var(--green);color:#fff;border:none;padding:9px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;width:100%;}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.form-error{font-size:0.68rem;color:var(--red)}
+.wa-sidebar-btn{background:#25D366;color:#fff;border:none;padding:8px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:5px;margin-top:0.4rem;text-decoration:none;}
+.trend-list{display:flex;flex-direction:column;gap:0.35rem}
+.trend-item{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.trend-item:last-child{border-bottom:none}
+.trend-item:hover .trend-name{color:var(--green)}
+.trend-name{font-size:0.8rem;color:var(--ink)}
+.trend-count{background:var(--green-bg);color:var(--green);font-size:0.67rem;font-weight:700;padding:2px 6px;border-radius:9px}
+.country-list{display:flex;flex-direction:column;gap:0.45rem}
+.country-row{display:flex;align-items:center;gap:6px}
+.c-flag{font-size:0.9rem;flex-shrink:0}.c-name{font-size:0.74rem;flex:0 0 60px}
+.c-bar-bg{flex:1;height:4px;background:var(--green-bg);border-radius:3px;overflow:hidden}
+.c-bar{height:100%;background:var(--green-l);border-radius:3px}
+.lb-section{margin-bottom:1.5rem}
+.lb-title{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:7px;}
+.lb-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
+@media(max-width:600px){.lb-grid{grid-template-columns:1fr}}
+.lb-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:1rem;box-shadow:var(--shadow);}
+.lb-item{display:flex;align-items:center;gap:10px;padding:0.65rem 0;border-bottom:1px solid var(--border);}
+.lb-item:last-child{border-bottom:none}
+.lb-rank{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;width:28px;text-align:center;flex-shrink:0;}
+.lb-rank.gold{color:#f59e0b}.lb-rank.silver{color:#9ca3af}.lb-rank.bronze{color:#cd7c3a}
+.lb-info{flex:1;min-width:0}
+.lb-name{font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-sub{font-size:0.7rem;color:var(--muted)}
+.lb-score{font-family:'Fraunces',serif;font-size:1rem;font-weight:700;color:var(--green);flex-shrink:0;}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px);}
+.overlay.open{display:flex;animation:fadeIn 0.2s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--white);border-radius:20px;padding:0;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 64px rgba(0,0,0,0.22);}
+.modal-close{position:absolute;top:0.8rem;right:0.8rem;width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--cream);font-size:0.9rem;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;z-index:2;}
+.modal-hero{padding:1.5rem 1.5rem 1rem;border-bottom:1px solid var(--border)}
+.modal-tags{margin-bottom:0.6rem;display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
+.modal-title{font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;line-height:1.2;margin-bottom:0.6rem}
+.modal-desc{font-size:0.87rem;color:var(--muted);line-height:1.7}
+.modal-body{padding:1rem 1.5rem}
+.modal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem;margin-bottom:0.9rem}
+.m-stat{background:var(--cream);border-radius:9px;padding:0.7rem;text-align:center}
+.m-stat-n{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:700;color:var(--green)}
+.m-stat-l{font-size:0.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:1px}
+.modal-author{display:flex;align-items:center;gap:8px;margin-bottom:0.9rem;padding:0.7rem;background:var(--cream);border-radius:9px}
+.modal-author .avatar{width:32px;height:32px;font-size:0.7rem}
+.modal-author-name{font-size:0.85rem;font-weight:600}
+.modal-author-sub{font-size:0.7rem;color:var(--muted)}
+.modal-actions{display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.9rem;}
+.modal-actions button,.modal-actions a{flex:1;min-width:80px;padding:8px 10px;border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--white);color:var(--ink);text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;}
+.m-vote-btn{background:var(--green) !important;color:#fff !important;border-color:var(--green) !important}
+.m-vote-btn.voted-m{background:var(--green-bg) !important;color:var(--green) !important;border-color:var(--green) !important}
+.m-dn-btn{background:var(--white) !important}
+.m-dn-btn.downed-m{background:var(--red-bg) !important;color:var(--red) !important;border-color:var(--red) !important}
+.m-wa-btn{background:#25D366 !important;color:#fff !important;border-color:#25D366 !important}
+.status-selector{margin-bottom:0.9rem;padding:0.75rem;background:var(--cream);border-radius:9px;}
+.status-sel-label{font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px;display:block;}
+.status-sel(width:100%;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.82rem;color:var(--ink);background:var(--white);outline:none;cursor:pointer;}
+.admin-note{font-size:0.68rem;color:var(--muted);margin-top:4px;}
+.comments-section{padding-top:0.9rem;border-top:1px solid var(--border)}
+.comments-title{font-size:0.8rem;font-weight:700;margin-bottom:0.6rem}
+.comment-box{display:flex;gap:6px;margin-bottom:0.6rem}
+.comment-input{flex:1;border:1px solid var(--border2);border-radius:7px;padding:6px 9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;color:var(--ink);background:var(--cream);outline:none;}
+.comment-input:focus{border-color:var(--green);background:var(--white)}
+.comment-submit{background:var(--green);color:#fff;border:none;padding:6px 11px;border-radius:7px;font-family:'Plus Jakarta Sans',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.comment-list{display:flex;flex-direction:column;gap:0.45rem}
+.comment-item{background:var(--cream);border-radius:7px;padding:0.55rem 0.7rem}
+.comment-meta{font-size:0.67rem;color:var(--muted);margin-bottom:2px}
+.comment-text{font-size:0.78rem;color:var(--ink2)}
+.toast{position:fixed;bottom:80px;right:1rem;z-index:200;background:var(--ink);color:#fff;padding:0.7rem 1rem;border-radius:9px;font-size:0.82rem;font-weight:500;transform:translateY(60px);opacity:0;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);max-width:260px;box-shadow:var(--shadow2);}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.success{background:var(--green)}.toast.error{background:var(--red)}
 
-        .card-user-name {
-            font-weight: bold;
-            font-size: 15px;
-        }
+footer{background:var(--ink);color:rgba(255,255,255,0.45);text-align:center;padding:1.5rem 1.1rem 2.5rem;font-size:0.75rem;}
+footer span{color:#4ade80}
+footer a{color: rgba(255,255,255,0.6); text-decoration: none; margin: 0 5px;}
+footer a:hover {color: #fff;}
 
-        /* Media Rich Content styling */
-        .idea-media {
-            width: 100%;
-            max-height: 400px;
-            object-fit: cover;
-            border-radius: 8px;
-            margin: 15px 0;
-        }
-
-        .idea-link {
-            display: inline-block;
-            color: var(--primary-color);
-            margin-bottom: 15px;
-            text-decoration: none;
-            word-break: break-all;
-        }
-
-        /* Interactive Poll Section */
-        .poll-section {
-            background-color: var(--bg-color);
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-        }
-
-        .poll-title {
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-
-        .poll-btn {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-right: 10px;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-
-        .poll-btn:hover {
-            background-color: var(--primary-color);
-            color: white;
-        }
-
-        /* Engagement Actions */
-        .actions {
-            display: flex;
-            gap: 20px;
-            border-top: 1px solid var(--border-color);
-            padding-top: 15px;
-            margin-top: 15px;
-        }
-
-        .action-btn {
-            background: none;
-            border: none;
-            color: var(--text-color);
-            cursor: pointer;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .action-btn:hover {
-            color: var(--primary-color);
-        }
-    </style>
+.join-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.join-overlay.show{opacity:1;pointer-events:all;}
+.join-box{background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;transform:translateY(24px);transition:transform 0.25s;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+.join-overlay.show .join-box{transform:translateY(0);}
+.join-title{font-size:20px;font-weight:700;color:#fff;text-align:center;margin-bottom:4px;}
+.join-sub{font-size:13px;color:rgba(255,255,255,0.55);text-align:center;margin-bottom:22px;}
+.join-label{font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:block;font-weight:500;}
+.join-input{width:100%;padding:12px 14px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.07);color:#fff;font-size:15px;outline:none;margin-bottom:14px;box-sizing:border-box;transition:border-color 0.2s;}
+.join-input:focus{border-color:#4f7c3f;background:rgba(255,255,255,0.1);}
+.join-input::placeholder{color:rgba(255,255,255,0.3);}
+.join-input.error{border-color:#e74c3c;}
+.join-btn{width:100%;padding:13px;border-radius:9px;border:none;background:linear-gradient(135deg,#4f7c3f,#2d4a22);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.2s;}
+.join-btn:hover{opacity:0.88;}
+.join-skip{width:100%;padding:9px;border-radius:9px;border:none;background:transparent;color:rgba(255,255,255,0.38);font-size:13px;cursor:pointer;margin-top:8px;}
+.join-skip:hover{color:rgba(255,255,255,0.65);}
+.notif-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1.5px solid #4f7c3f;border-radius:12px;padding:12px 22px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;max-width:90vw;text-align:center;}
+.notif-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
 </head>
 <body>
 
-<div class="container">
-    <header>
-        <h1>💡 Global Idea Hub</h1>
-        <!-- Personalization: Dark Mode Toggle -->
-        <button class="btn-theme" id="themeToggle">🌓 Toggle Dark Mode</button>
-    </header>
+  <nav class="nav">
+    <a class="logo" href="#" onclick="return false">
+      <div class="logo-dot">🌍</div>IdeaSphere
+    </a>
+    <div class="nav-right">
+      <button class="theme-btn-nav" id="theme-toggle-btn" onclick="toggleTheme()">🌓 Theme</button>
+      <button class="nav-link" style="color:rgba(255,255,255,0.65);font-size:0.78rem;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;" onclick="showAbout()">About</button>
+      <div id="auth-nav">
+        <button class="login-btn-nav" onclick="loginGoogle()">
+          <img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In
+        </button>
+      </div>
+    </div>
+  </nav>
 
-    <!-- Personalization: User Custom Profile -->
-    <div class="profile-card">
-        <img src="https://via.placeholder.com/70" alt="Profile" class="profile-img" id="profileDisplayImg">
-        <div class="profile-info" style="flex-grow: 1;">
-            <input type="text" id="profileName" value="Guest Innovator" placeholder="Apna Name Likhein">
-            <textarea id="profileBio" rows="2" placeholder="Apne baare mein thoda likhein (e.g., Photography Lover)"></textarea>
+  <div id="tab-feed" class="page-tab active">
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-pill">🌱 Open Platform · Free Forever</div>
+        <h1>Where <em>Community</em><br>Ideas Change the World</h1>
+        <p class="hero-sub">A global space for students and citizens to share ideas that make our world better.</p>
+        <div class="hero-cta">
+          <button class="btn-hp" onclick="switchTab('submit')">💡 Share Your Idea</button>
+          <button class="btn-hs" onclick="document.getElementById('feed-start').scrollIntoView()">Browse Feed</button>
         </div>
+      </div>
+    </section>
+
+    <div class="stats-bar">
+      <div class="stat-item"><div class="stat-n" id="stat-ideas-ui">0</div><div class="stat-l">Ideas</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-countries-ui">0</div><div class="stat-l">Countries</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-votes-ui">0</div><div class="stat-l">Votes</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-implemented-ui">0</div><div class="stat-l">Implemented</div></div>
     </div>
 
-    <!-- Idea Posting Box (With Media Support) -->
-    <div class="idea-form">
-        <h3>Share Your Creative Idea</h3>
-        <textarea id="ideaText" rows="4" placeholder="Apna naya idea yahan likhein..."></textarea>
-        <input type="text" id="ideaMediaUrl" placeholder="Optional: Kisi image ka URL daalein (Media Rich)">
-        <input type="text" id="ideaLinkUrl" placeholder="Optional: Kisi article ya video ka Link daalein">
-        <button id="submitIdea">Post Idea 🚀</button>
+    <div class="page" id="feed-start">
+      <div class="layout">
+        <main>
+          <div class="search-panel">
+            <div class="search-panel-title">🔍 Advanced Search</div>
+            <div class="search-grid">
+              <input type="text" id="s-query" class="s-inp search-full" placeholder="Search keywords, title, or author..." oninput="renderFeed()">
+              <select id="s-cat" class="s-sel" onchange="renderFeed()">
+                <option value="">All Categories</option>
+                <option value="environment">🌿 Environment</option>
+                <option value="education">📚 Education</option>
+                <option value="health">❤️ Health</option>
+                <option value="tech">💻 Technology</option>
+                <option value="social">🤝 Social</option>
+                <option value="food">🌾 Food & Agriculture</option>
+              </select>
+              <select id="s-status" class="s-sel" onchange="renderFeed()">
+                <option value="">All Statuses</option>
+                <option value="Under Review">Under Review</option>
+                <option value="Approved">Approved</option>
+                <option value="Implemented">Implemented</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="feed-head">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="feed-title">Community Ideas</div>
+              <div class="feed-count" id="feed-count-ui">0 ideas</div>
+            </div>
+            <select id="feed-sort" class="sort-sel" onchange="renderFeed()">
+              <option value="newest">Newest First</option>
+              <option value="votes">Most Voted</option>
+              <option value="comments">Most Discussed</option>
+              <option value="score">Best Score</option>
+            </select>
+          </div>
+
+          <div id="ideas-container" class="ideas-feed">
+            <div class="empty"><p>Loading ideas from live network...</p></div>
+          </div>
+          <button id="load-more-btn" class="load-more-btn" style="display:none" onclick="loadMore()">Load More Ideas</button>
+        </main>
+
+        <aside class="sidebar">
+          <div class="s-card" id="sidebar-profile-card">
+            <div class="s-title">👤 Account</div>
+            <p class="login-sub">Login to submit ideas & get notifications!</p>
+            <button class="google-login-btn" onclick="loginGoogle()">
+              <img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google
+            </button>
+          </div>
+          <div class="s-card">
+            <div class="s-title">🔥 Trending Topics</div>
+            <div id="trending-container" class="trend-list"></div>
+          </div>
+          <div class="s-card">
+            <div class="s-title">🌐 Top Countries</div>
+            <div id="countries-container" class="country-list"></div>
+          </div>
+        </aside>
+      </div>
     </div>
+  </div>
 
-    <!-- Feed Section -->
-    <div id="ideaFeed">
-        <!-- Ideas yahan dynamically dynamically add honge -->
-    </div>
-</div>
-
-<script>
-    // Theme Management (Dark Mode)
-    const themeToggle = document.getElementById('themeToggle');
-    themeToggle.addEventListener('click', () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        if (currentTheme === 'dark') {
-            document.documentElement.removeAttribute('data-theme');
-        } else {
-            document.documentElement.setAttribute('data-theme', 'dark');
-        }
-    });
-
-    // Idea Submission Logic
-    const submitBtn = document.getElementById('submitIdea');
-    const ideaFeed = document.getElementById('ideaFeed');
-
-    submitBtn.addEventListener('click', () => {
-        const text = document.getElementById('ideaText').value.trim();
-        const mediaUrl = document.getElementById('ideaMediaUrl').value.trim();
-        const linkUrl = document.getElementById('ideaLinkUrl').value.trim();
+  <div id="tab-submit" class="page-tab">
+    <div class="page" style="max-width:560px">
+      <div class="s-card" style="padding:1.5rem">
+        <div class="s-title" style="font-size:1.1rem;margin-bottom:4px">💡 Share Your Idea with the World</div>
+        <p style="font-size:0.75rem;color:var(--muted);margin-bottom:1.25rem">You'll get real-time tracking when people interact with your submission!</p>
         
-        // Personalization values
-        const userName = document.getElementById('profileName').value.trim() || "Anonymous";
+        <form class="form" onsubmit="handleFormSubmit(event)">
+          <div>
+            <label class="f-label">Title</label>
+            <input type="text" id="f-title" class="f-inp" placeholder="What's your solution's name?" maxlength="100" oninput="countChar('f-title','c-title',100)" required>
+            <div class="char-count" id="c-title">0 / 100</div>
+          </div>
+          <div>
+            <label class="f-label">Description</label>
+            <textarea id="f-desc" class="f-ta" placeholder="Explain your concept, how it helps people, and implementation details..." maxlength="600" oninput="countChar('f-desc','c-desc',600)" required></textarea>
+            <div class="char-count" id="c-desc">0 / 600</div>
+          </div>
+          <div>
+            <label class="f-label">Optional: Image URL</label>
+            <input type="text" id="f-mediaUrl" class="f-inp" placeholder="Paste an image URL link...">
+          </div>
+          <div>
+            <label class="f-label">Optional: External Project Link</label>
+            <input type="text" id="f-linkUrl" class="f-inp" placeholder="https://example.com">
+          </div>
+          <div>
+            <label class="f-label">Category</label>
+            <select id="f-cat" class="f-sel" required>
+              <option value="">Choose a category…</option>
+              <option value="environment">🌿 Environment</option>
+              <option value="education">📚 Education</option>
+              <option value="health">❤️ Health</option>
+              <option value="tech">💻 Technology</option>
+              <option value="social">🤝 Social</option>
+              <option value="food">🌾 Food & Agriculture</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+            <div>
+              <label class="f-label">Your Name</label>
+              <input type="text" id="f-author" class="f-inp" placeholder="Anonymous" maxlength="40">
+            </div>
+            <div>
+              <label class="f-label">Country</label>
+              <select id="f-country" class="f-sel" required>
+                <option value="">🌍 Select Country...</option>
+                <option value="India">🇮🇳 India</option>
+                <option value="United States">🇺🇸 United States</option>
+                <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                <option value="Australia">🇦🇺 Australia</option>
+                <option value="Canada">🇨🇦 Canada</option>
+                <option value="Pakistan">🇵🇰 Pakistan</option>
+                <option value="Bangladesh">🇧🇩 Bangladesh</option>
+                <option value="Germany">🇩🇪 Germany</option>
+                <option value="France">🇫🇷 France</option>
+                <option value="Other">🌍 Other Location</option>
+              </select>
+            </div>
+          </div>
+          <div id="form-error-ui" class="form-error"></div>
+          <button type="submit" id="form-sub-btn" class="submit-btn" style="margin-top:0.4rem">Publish Idea 🚀</button>
+        </form>
+        <a href="https://api.whatsapp.com/send?text=Hey! Check out IdeaSphere, a global platform to share and scale community solutions: https://ideasphere-debug.github.io/ideasphere/" target="_blank" class="wa-sidebar-btn">📲 Share IdeaSphere on WhatsApp</a>
+      </div>
+    </div>
+  </div>
 
-        if (!text) {
-            alert('Kuch idea toh likhiye pehle!');
-            return;
+  <div id="tab-leaderboard" class="page-tab">
+    <div class="page">
+      <div class="lb-section">
+        <div class="lb-title">🏆 Top Ideas</div>
+        <div id="lb-ideas" class="lb-grid"></div>
+      </div>
+      <div class="lb-section">
+        <div class="lb-title">🌟 Top Contributors</div>
+        <div id="lb-users" class="lb-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-profile" class="page-tab">
+    <div class="page" style="max-width:600px">
+      <div class="s-card" id="profile-page-card">
+        <div class="s-title">👤 Your Profile</div>
+        <p class="login-sub">Sign in to see your profile metrics and active pipeline data tracking!</p>
+      </div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="bn-item active" onclick="switchTab('feed')"><div class="bn-icon">🌍</div>Feed</button>
+    <button class="bn-item" onclick="switchTab('submit')"><div class="bn-icon">💡</div>Share</button>
+    <button class="bn-item" onclick="switchTab('leaderboard')"><div class="bn-icon">🏆</div>Leaderboard</button>
+    <button class="bn-item" onclick="switchTab('profile')"><div class="bn-icon">👤</div>Profile</button>
+  </nav>
+
+  <div id="modal-overlay" class="overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeModal(null)">✕</button>
+      <div class="modal-hero">
+        <div id="m-tags" class="modal-tags"></div>
+        <h2 id="m-title" class="modal-title">Idea Details</h2>
+        <p id="m-desc" class="modal-desc"></p>
+      </div>
+      <div class="modal-body">
+        <div class="modal-stats">
+          <div class="m-stat"><div id="m-stat-votes" class="m-stat-n">0</div><div class="m-stat-l">Upvotes</div></div>
+          <div class="m-stat"><div id="m-stat-cmts" class="m-stat-n">0</div><div class="m-stat-l">Comments</div></div>
+          <div class="m-stat"><div id="m-stat-score" class="m-stat-n">0</div><div class="m-stat-l">Net Score</div></div>
+        </div>
+        <div class="modal-author">
+          <div id="m-avatar" class="avatar"></div>
+          <div>
+            <div id="m-auth-name" class="modal-author-name"></div>
+            <div id="m-auth-sub" class="modal-author-sub"></div>
+          </div>
+        </div>
+        
+        <div id="m-admin-panel" class="status-selector" style="display:none">
+          <span class="status-sel-label">📊 Update Status (Owner/Admin Only)</span>
+          <select id="m-status-select" class="status-sel" onchange="changeIdeaStatus()">
+            <option value="Under Review">🔄 Under Review</option>
+            <option value="Approved">✅ Approved</option>
+            <option value="Implemented">🚀 Implemented</option>
+            <option value="Rejected">❌ Rejected</option>
+          </select>
+          <div class="admin-note">Changes update instantly across global endpoints.</div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="m-btn-vote" onclick="modalVote('votes')">🔼 Upvote</button>
+          <button id="m-btn-down" class="m-dn-btn" onclick="modalVote('downvotes')">🔽 Downvote</button>
+          <a id="m-btn-wa" class="m-wa-btn" href="#" target="_blank">📲 Share</a>
+        </div>
+        
+        <div class="comments-section">
+          <div class="comments-title">Comments</div>
+          <div class="comment-box">
+            <input type="text" id="cmt-input" class="comment-input" placeholder="Write a constructive response..." maxlength="250">
+            <button class="comment-submit" onclick="addComment()">Post</button>
+          </div>
+          <div id="modal-comments-list" class="comment-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="join-modal" class="join-overlay">
+    <div class="join-box">
+      <div class="join-title">Join IdeaSphere</div>
+      <div class="join-sub">Enter credentials to initialize secure tracking context</div>
+      <label class="join-label">Full Name</label>
+      <input type="text" id="join-name" class="join-input" placeholder="John Doe">
+      <label class="join-label">Email Address</label>
+      <input type="email" id="join-input-email" class="join-input" placeholder="john@example.com">
+      <button class="join-btn" onclick="submitJoinModal()">Confirm Account Context</button>
+      <button class="join-skip" onclick="closeJoinModal()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="notif-toast" class="notif-toast"></div>
+
+  <footer>
+    Made with ♥ for the world · IdeaSphere © 2026 
+    · <a href="#" onclick="showAbout(); return false;">About Us</a> 
+    · <a href="#" onclick="showToast('Privacy protection enabled.','success'); return false;">Privacy Policy</a> 
+    · <a href="#" onclick="showToast('Platform free for open research.','success'); return false;">Terms of Use</a>
+  </footer>
+
+  <script>
+    const state = { page: 1, perPage: 6, currentTab: 'feed', modalId: null, voted: {}, downvoted: {}, pollVoted: {} };
+    let joinPromiseResolve = null;
+
+    // Dark Mode function logic
+    function toggleTheme() {
+      if (document.documentElement.getAttribute('data-theme') === 'dark') {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'light');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+      }
+    }
+    // Set theme on load
+    if (localStorage.getItem('theme') === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    function switchTab(tabId) {
+      state.currentTab = tabId;
+      document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.bn-item').forEach(b => b.classList.remove('active'));
+      
+      document.getElementById('tab-' + tabId).classList.add('active');
+      const idx = ['feed', 'submit', 'leaderboard', 'profile'].indexOf(tabId);
+      if(idx !== -1) document.querySelectorAll('.bottom-nav .bn-item')[idx].classList.add('active');
+      
+      window.scrollTo(0,0);
+      if(tabId === 'leaderboard' || tabId === 'profile') renderLeaderboardAndProfile();
+    }
+
+    function countChar(fid, cid, max) {
+      const v = document.getElementById(fid).value.length;
+      document.getElementById(cid).textContent = `${v} / ${max}`;
+    }
+
+    function loginGoogle() { if(window.__loginGoogle) window.__loginGoogle(); }
+    function logout() { if(window.__logout) window.__logout(); }
+
+    window.showJoinModal = function() {
+      document.getElementById('join-modal').classList.add('show');
+      return new Promise(resolve => { joinPromiseResolve = resolve; });
+    };
+    function submitJoinModal() {
+      const name = document.getElementById('join-name').value.trim();
+      const email = document.getElementById('join-input-email').value.trim();
+      if(!name || !email) { showToast('Please completely fill both fields','error'); return; }
+      document.getElementById('join-modal').classList.remove('show');
+      if(joinPromiseResolve) joinPromiseResolve({name, email});
+    }
+    function closeJoinModal() {
+      document.getElementById('join-modal').classList.remove('show');
+      if(joinPromiseResolve) joinPromiseResolve({name: null, email: null});
+    }
+
+    // Save customized Profile fields locally
+    function saveCustomProfile() {
+      const customName = document.getElementById('p-custom-name').value.trim();
+      const customBio = document.getElementById('p-custom-bio').value.trim();
+      if(customName) {
+        localStorage.setItem('p_custom_name', customName);
+        localStorage.setItem('p_custom_bio', customBio);
+        showToast('Profile updated locally! ✨', 'success');
+        if(window.__currentUser) {
+          window.__currentUser.displayName = customName;
         }
+        window.updateAuthUI(window.__currentUser);
+      }
+    }
 
-        // Creating the Interactive Feed Card
-        const card = document.createElement('div');
-        card.className = 'idea-card';
+    window.updateAuthUI = function(user) {
+      const authNav = document.getElementById('auth-nav');
+      const sideCard = document.getElementById('sidebar-profile-card');
+      const profTab = document.getElementById('profile-page-card');
+      
+      const localName = localStorage.getItem('p_custom_name');
+      const localBio = localStorage.getItem('p_custom_bio') || 'Community Innovator Context';
+      
+      if (user) {
+        const nameStr = localName || user.displayName || 'User';
+        const pImg = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nameStr)}&background=16a34a&color=fff`;
+        
+        const navHtml = `<div class="user-nav"><img class="user-nav-img" src="${pImg}"><span class="user-nav-name">${nameStr.split(' ')[0]}</span><button class="logout-btn" onclick="logout()">Exit</button></div>`;
+        authNav.innerHTML = navHtml;
+        
+        const cardHtml = `<div class="s-title">👤 Account</div><div class="user-profile-card"><img class="user-profile-img" src="${pImg}"><div><div class="user-profile-name">${nameStr}</div><div class="user-profile-email">${user.email||''}</div><span class="logout-link" onclick="logout()">Sign Out</span></div></div>`;
+        if(sideCard) sideCard.innerHTML = cardHtml;
+        
+        const myIdeas = (window.__ideas || []).filter(i => i.ownerEmail === user.email);
+        const myVotes = myIdeas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
+        profTab.innerHTML = `
+          <div class="s-title">👤 Your Profile Dashboard</div>
+          <div class="user-profile-card" style="margin-bottom:1.25rem">
+            <img class="user-profile-img" style="width:50px;height:50px;" src="${pImg}">
+            <div style="flex-grow:1;">
+              <input type="text" id="p-custom-name" class="f-inp" value="${nameStr}" placeholder="Edit Public Name" style="margin-bottom:5px;">
+              <input type="text" id="p-custom-bio" class="f-inp" value="${localBio}" placeholder="Add your short Bio">
+              <button onclick="saveCustomProfile()" class="submit-btn" style="padding:4px 8px; font-size:0.7rem; margin-top:5px; width:auto;">Save Profile Changes</button>
+            </div>
+          </div>
+          <div class="modal-stats">
+            <div class="m-stat"><div class="m-stat-n">${myIdeas.length}</div><div class="m-stat-l">Published</div></div>
+            <div class="m-stat"><div class="m-stat-n">${myVotes}</div><div class="m-stat-l">Impact Upvotes</div></div>
+          </div>
+          <div style="margin-top:1rem">
+            <div class="comments-title">Your Active Pipeline Tracker</div>
+            ${myIdeas.length === 0 ? '<p class="login-sub">You have not submitted any ideas yet.</p>' : myIdeas.map(i => `
+              <div class="comment-item" style="margin-bottom:0.5rem; cursor:pointer;" onclick="openModal('${i.id}')">
+                <span class="status-badge ${getStatusClass(i.status)}" style="float:right">${i.status}</span>
+                <strong style="font-size:0.85rem">${esc(i.title)}</strong>
+              </div>
+            `).join('')}
+          </div>`;
+      } else {
+        authNav.innerHTML = `<button class="login-btn-nav" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="13" height="13"> Sign In</button>`;
+        if(sideCard) sideCard.innerHTML = `<div class="s-title">👤 Account</div><p class="login-sub">Login to submit ideas & get notifications!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
+        profTab.innerHTML = `<div class="s-title">👤 Your Profile</div><p class="login-sub">Sign in to see your profile metrics and active pipeline data tracking!</p><button class="google-login-btn" onclick="loginGoogle()"><img src="https://www.google.com/favicon.ico" width="16" height="16"> Sign In with Google</button>`;
+      }
+      if(window.__ideas) renderFeed();
+    };
 
-        // Initialising vote counters for interactive poll
-        let agreeVotes = 0;
-        let disagreeVotes = 0;
+    window.renderAll = function() {
+      const totalIdeas = window.__ideas.length;
+      const totalVotes = window.__ideas.reduce((acc, curr) => acc + (curr.votes || 0), 0);
+      const uniqueCountries = new Set(window.__ideas.map(i => i.country).filter(Boolean));
+      const totalImplemented = window.__ideas.filter(i => i.status === 'Implemented').length;
 
-        let mediaHtml = '';
-        if (mediaUrl) {
-            mediaHtml = `<img src="${mediaUrl}" class="idea-media" alt="User Media" onerror="this.style.display='none'">`;
+      document.getElementById('stat-ideas-ui').textContent = totalIdeas;
+      document.getElementById('stat-countries-ui').textContent = uniqueCountries.size || 1; 
+      document.getElementById('stat-votes-ui').textContent = totalVotes;
+      document.getElementById('stat-implemented-ui').textContent = totalImplemented;
+
+      renderFeed();
+      renderSidebars();
+      if(state.currentTab === 'leaderboard' || state.currentTab === 'profile') renderLeaderboardAndProfile();
+      if(state.modalId) {
+        const fresh = window.__ideas.find(i=>i.id === state.modalId);
+        if(fresh) updateModalUI(fresh);
+      }
+    };
+
+    function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function getStatusClass(s) {
+      if(s==='Approved') return 'status-approved';
+      if(s==='Implemented') return 'status-implemented';
+      if(s==='Rejected') return 'status-rejected';
+      return 'status-review';
+    }
+
+    // Direct Integration of Poll Actions
+    window.submitPollVote = async function(id, type, ev) {
+      if(ev) ev.stopPropagation();
+      if(state.pollVoted[id]) {
+        showToast('You have already voted in this poll!', 'error');
+        return;
+      }
+      state.pollVoted[id] = true;
+      const field = (type === 'agree') ? 'agreeVotes' : 'disagreeVotes';
+      if(window.__voteIdea) {
+        await window.__voteIdea(id, field, 1);
+        showToast('Poll vote submitted successfully! 🗳️', 'success');
+      }
+    }
+
+    function renderFeed() {
+      const container = document.getElementById('ideas-container');
+      if(!window.__ideas || window.__ideas.length === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon">🍃</div><p>No solution structures submitted yet</p></div>';
+        return;
+      }
+      
+      let list = [...window.__ideas];
+      const q = document.getElementById('s-query').value.toLowerCase().trim();
+      const cat = document.getElementById('s-cat').value;
+      const stat = document.getElementById('s-status').value;
+      const sort = document.getElementById('feed-sort').value;
+
+      if(q) list = list.filter(i => i.title.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.ownerName||'').toLowerCase().includes(q));
+      if(cat) list = list.filter(i => i.category === cat);
+      if(stat) list = list.filter(i => i.status === stat);
+
+      if(sort === 'votes') list.sort((a,b) => (b.votes||0) - (a.votes||0));
+      else if(sort === 'comments') list.sort((a,b) => (b.comments?.length||0) - (a.comments?.length||0));
+      else if(sort === 'score') list.sort((a,b) => ((b.votes||0)-(b.downvotes||0)) - ((a.votes||0)-(a.downvotes||0)));
+      else list.sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
+
+      document.getElementById('feed-count-ui').textContent = `${list.length} ideas verified`;
+
+      const totalItems = list.length;
+      const maxToShow = state.page * state.perPage;
+      const chunk = list.slice(0, maxToShow);
+
+      if(chunk.length === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><p>No configurations match selected search criteria</p></div>';
+        document.getElementById('load-more-btn').style.display = 'none';
+        return;
+      }
+
+      container.innerHTML = chunk.map(i => {
+        const netScore = (i.votes || 0) - (i.downvotes || 0);
+        const scoreClass = netScore > 0 ? 'positive' : (netScore < 0 ? 'negative' : '');
+        const upVoted = state.voted[i.id] ? 'voted' : '';
+        const dnVoted = state.downvoted[i.id] ? 'downed' : '';
+        const isMine = window.__currentUser?.email && i.ownerEmail === window.__currentUser.email;
+        const init = (i.ownerName || 'A').charAt(0).toUpperCase();
+        
+        // Media and External URL support logic renders here safely
+        let mediaSnippet = i.mediaUrl ? `<img src="${esc(i.mediaUrl)}" class="card-media-preview" onerror="this.style.display='none'">` : '';
+        let linkSnippet = i.linkUrl ? `<span onclick="event.stopPropagation()"><a href="${esc(i.linkUrl)}" target="_blank" class="card-link-preview">🔗 Project Web link</a></span>` : '';
+        
+        // Poll Dynamic Rendering template UI logic
+        let agreeCount = i.agreeVotes || 0;
+        let disagreeCount = i.disagreeVotes || 0;
+        let pollSnippet = `
+          <div class="card-poll-box" onclick="event.stopPropagation()">
+            <strong>Community Poll:</strong>
+            <button class="poll-mini-btn" onclick="submitPollVote('${i.id}', 'agree', event)">👍 Agree (${agreeCount})</button>
+            <button class="poll-mini-btn" onclick="submitPollVote('${i.id}', 'disagree', event)">👎 Disagree (${disagreeCount})</button>
+          </div>`;
+
+        return `
+          <div class="idea-card" onclick="openModal('${i.id}')">
+            <div class="card-head">
+              <div class="vote-col" onclick="event.stopPropagation()">
+                <button class="vote-up ${upVoted}" onclick="vote('${i.id}','votes', event)">▲</button>
+                <div class="vote-score ${scoreClass}">${netScore}</div>
+                <button class="vote-dn ${dnVoted}" onclick="vote('${i.id}','downvotes', event)">▼</button>
+              </div>
+              <div class="card-body">
+                <div class="card-tags">
+                  <span class="tag tag-${i.category}">${i.category}</span>
+                  <span class="status-badge ${getStatusClass(i.status)}">${i.status}</span>
+                  ${isMine ? '<span class="tag tag-mine">Mine</span>' : ''}
+                </div>
+                <h3 class="card-title">${esc(i.title)}</h3>
+                <p class="card-desc">${esc(i.desc)}</p>
+                ${mediaSnippet}
+                ${linkSnippet}
+                ${pollSnippet}
+                <div class="card-foot">
+                  <div class="author-row">
+                    <div class="avatar" style="background:#4a5568">${init}</div>
+                    <span class="author-name">${esc(i.ownerName || 'Anonymous')} · 📍${esc(i.country || 'Global')}</span>
+                  </div>
+                  <div class="card-meta">
+                    <span class="meta-chip">💬 ${i.comments?.length || 0} responses</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+
+      document.getElementById('load-more-btn').style.display = maxToShow < totalItems ? 'block' : 'none';
+    }
+
+    function loadMore() { state.page++; renderFeed(); }
+
+    async function vote(id, field, ev) {
+      if(ev) ev.stopPropagation();
+      if(!window.__voteIdea) return;
+      
+      if(field === 'votes') {
+        if(state.voted[id]) return;
+        state.voted[id] = true;
+        if(state.downvoted[id]) { delete state.downvoted[id]; await window.__voteIdea(id, 'downvotes', -1); }
+        await window.__voteIdea(id, 'votes', 1);
+      } else {
+        if(state.downvoted[id]) return;
+        state.downvoted[id] = true;
+        if(state.voted[id]) { delete state.voted[id]; await window.__voteIdea(id, 'votes', -1); }
+        await window.__voteIdea(id, 'downvotes', 1);
+      }
+      
+      const target = (window.__ideas||[]).find(i=>i.id===id);
+      if(target?.ownerEmail && window.__sendNotif) {
+        window.__sendNotif(target.ownerEmail, target.title, window.__currentUser?.displayName || 'An anonymous citizen', field === 'votes' ? 'vote' : 'downvote');
+      }
+      showToast('Interaction synchronized!','success');
+    }
+
+    function renderSidebars() {
+      const ideas = window.__ideas || [];
+      const trends = {};
+      ideas.forEach(i => { trends[i.category] = (trends[i.category] || 0) + 1; });
+      const sortedTrends = Object.keys(trends).sort((a,b)=>trends[b]-trends[a]);
+      document.getElementById('trending-container').innerHTML = sortedTrends.map(t => `<div class="trend-item" onclick="document.getElementById('s-cat').value='${t}'; renderFeed();"><span class="trend-name">${t.toUpperCase()}</span><span class="trend-count">${trends[t]} elements</span></div>`).join('');
+
+      const countries = {};
+      ideas.forEach(i => { if(i.country) countries[i.country] = (countries[i.country] || 0) + 1; });
+      const sortedCountries = Object.keys(countries).sort((a,b)=>countries[b]-countries[a]).slice(0, 5);
+      const maxCount = Math.max(...Object.values(countries), 1);
+      document.getElementById('countries-container').innerHTML = sortedCountries.map(c => `
+        <div class="country-row">
+          <span class="c-name">${esc(c)}</span>
+          <div class="c-bar-bg"><div class="c-bar" style="width:${(countries[c]/maxCount)*100}%"></div></div>
+        </div>`).join('');
+    }
+
+    function renderLeaderboardAndProfile() {
+      const ideas = [...(window.__ideas || [])];
+      ideas.sort((a,b) => (b.votes||0) - (a.votes||0));
+      
+      document.getElementById('lb-ideas').innerHTML = ideas.slice(0, 4).map((i, idx) => `
+        <div class="lb-item" onclick="openModal('${i.id}')" style="cursor:pointer">
+          <div class="lb-rank ${idx===0?'gold':(idx===1?'silver':(idx===2?'bronze':''))}">${idx+1}</div>
+          <div class="lb-info"><div class="lb-name">${esc(i.title)}</div><div class="lb-sub">${esc(i.ownerName)} · ${i.category}</div></div>
+          <div class="lb-score">${i.votes||0} up</div>
+        </div>`).join('');
+
+      const users = {};
+      window.__ideas.forEach(i => {
+        if(!i.ownerEmail) return;
+        if(!users[i.ownerEmail]) users[i.ownerEmail] = { name: i.ownerName, count: 0, score: 0 };
+        users[i.ownerEmail].count++;
+        users[i.ownerEmail].score += (i.votes || 0);
+      });
+      const sortedUsers = Object.values(users).sort((a,b) => b.score - a.score).slice(0,4);
+      document.getElementById('lb-users').innerHTML = sortedUsers.map((u, idx) => `
+        <div class="lb-item">
+          <div class="lb-rank ${idx===0?'gold':(idx===1?'silver':(idx===2?'bronze':''))}">${idx+1}</div>
+          <div class="lb-info"><div class="lb-name">${esc(u.name || 'Contributor')}</div><div class="lb-sub">${u.count} active scale projects published</div></div>
+          <div class="lb-score">${u.score} pts</div>
+        </div>`).join('');
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      const btn = document.getElementById('form-sub-btn');
+      btn.disabled = true;
+      
+      // Captured Media & Link Fields directly here
+      const idea = {
+        title: document.getElementById('f-title').value.trim(),
+        desc: document.getElementById('f-desc').value.trim(),
+        mediaUrl: document.getElementById('f-mediaUrl').value.trim(),
+        linkUrl: document.getElementById('f-linkUrl').value.trim(),
+        category: document.getElementById('f-cat').value,
+        country: document.getElementById('f-country').value,
+        author: localStorage.getItem('p_custom_name') || document.getElementById('f-author').value.trim() || 'Anonymous'
+      };
+
+      try {
+        if(window.__submitIdea) {
+          await window.__submitIdea(idea);
+          showToast('🚀 Solution deployed successfully to network map!','success');
+          e.target.reset();
+          countChar('f-title','c-title',100);
+          countChar('f-desc','c-desc',600);
+          switchTab('feed');
         }
+      } catch(err) {
+        document.getElementById('form-error-ui').textContent = 'Error compiling data layer connection parameters.';
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
-        let linkHtml = '';
-        if (linkUrl) {
-            linkHtml = `<a href="${linkUrl}" target="_blank" class="idea-link">🔗 View Attached Link</a>`;
+    function openModal(id) {
+      state.modalId = id;
+      const target = window.__ideas.find(i=>i.id === id);
+      if(!target) return;
+      document.getElementById('modal-overlay').classList.add('open');
+      updateModalUI(target);
+    }
+    function closeModal(e) {
+      if(!e || e.target === document.getElementById('modal-overlay') || e === null) {
+        document.getElementById('modal-overlay').classList.remove('open');
+        state.modalId = null;
+      }
+    }
+
+    function updateModalUI(idea) {
+      document.getElementById('m-title').textContent = idea.title;
+      document.getElementById('m-desc').textContent = idea.desc;
+      document.getElementById('m-stat-votes').textContent = idea.votes || 0;
+      document.getElementById('m-stat-cmts').textContent = idea.comments?.length || 0;
+      document.getElementById('m-stat-score').textContent = (idea.votes || 0) - (idea.downvotes || 0);
+      document.getElementById('m-auth-name').textContent = idea.ownerName || 'Anonymous';
+      document.getElementById('m-auth-sub').textContent = `Innovator context · 📍 ${idea.country || 'Global pipeline'}`;
+      document.getElementById('m-avatar').textContent = (idea.ownerName || 'A').charAt(0).toUpperCase();
+      document.getElementById('m-tags').innerHTML = `<span class="tag tag-${idea.category}">${idea.category}</span><span class="status-badge ${getStatusClass(idea.status)}">${idea.status}</span>`;
+      
+      document.getElementById('m-btn-wa').href = `https://api.whatsapp.com/send?text=${encodeURIComponent('Check out this incredible community solution platform proposal on IdeaSphere: ' + idea.title + ' — https://ideasphere-debug.github.io/ideasphere/')}`;
+
+      const adminPanel = document.getElementById('m-admin-panel');
+      if(window.__currentUser && (window.__currentUser.email === idea.ownerEmail || window.__currentUser.email === 'ideaspherecontact0@gmail.com')) {
+        adminPanel.style.display = 'block';
+        document.getElementById('m-status-select').value = idea.status || 'Under Review';
+      } else {
+        adminPanel.style.display = 'none';
+      }
+
+      document.getElementById('m-btn-vote').className = state.voted[idea.id] ? 'm-vote-btn voted-m' : '';
+      document.getElementById('m-btn-down').className = state.downvoted[idea.id] ? 'm-dn-btn downed-m' : 'm-dn-btn';
+
+      renderComments(idea);
+    }
+
+    async function changeIdeaStatus() {
+      if(!state.modalId || !window.__updateStatus) return;
+      const selectVal = document.getElementById('m-status-select').value;
+      try {
+        await window.__updateStatus(state.modalId, selectVal);
+        showToast('🎯 Pipeline matrix scope parameters initialized.','success');
+      } catch(e) {
+        showToast('Unauthorized execution rejection.','error');
+      }
+    }
+
+    function modalVote(field) {
+      if(state.modalId) vote(state.modalId, field, null);
+    }
+
+    function renderComments(idea) {
+      const list = document.getElementById('modal-comments-list');
+      if(!idea.comments || idea.comments.length === 0) {
+        list.innerHTML = '<p class="login-sub" style="text-align:left;padding:0.5rem 0;">No context statements posted yet.</p>';
+        return;
+      }
+      const sorted = [...idea.comments].sort((a,b)=>b.ts - a.ts);
+      list.innerHTML = sorted.map(c => `
+        <div class="comment-item">
+          <div class="comment-meta"><strong>${esc(c.name)}</strong> · ${new Date(c.ts).toLocaleDateString()}</div>
+          <div class="comment-text">${esc(c.text)}</div>
+        </div>`).join('');
+    }
+
+    async function addComment() {
+      const inp = document.getElementById('cmt-input');
+      const text = inp.value.trim();
+      if(!text || !state.modalId || !window.__addComment) return;
+      
+      const name = localStorage.getItem('p_custom_name') || window.__currentUser?.displayName || document.getElementById('f-author').value.trim() || 'Anonymous Innovator';
+      const idea = (window.__ideas || []).find(i => i.id === state.modalId);
+      
+      try {
+        await window.__addComment(state.modalId, { name, text, ts: Date.now() });
+        if(idea?.ownerEmail && window.__sendNotif) {
+          window.__sendNotif(idea.ownerEmail, idea.title, name, 'comment');
         }
+        inp.value = '';
+        showToast('💬 Public comment added successfully!','success');
+      } catch(e) {
+        showToast('Network synchronization delay initialization fail.','error');
+      }
+    }
 
-        card.innerHTML = `
-            <div class="card-header">
-                <div class="card-user-name">👤 ${userName}</div>
-            </div>
-            <div class="card-body">
-                <p>${text}</p>
-                ${mediaHtml}
-                ${linkHtml}
-            </div>
-            
-            <!-- Interactive Poll Section -->
-            <div class="poll-section">
-                <div class="poll-title">Kya aap is idea se sehmat hain? (Quick Vote)</div>
-                <button class="poll-btn agree-btn">👍 Agree (<span class="agree-count">0</span>)</button>
-                <button class="poll-btn disagree-btn">👎 Disagree (<span class="disagree-count">0</span>)</button>
-            </div>
+    let toastTimer;
+    function showAbout() { 
+      showToast('🌍 IdeaSphere — A global collaborative platform where students, researchers, and citizens share innovative ideas to resolve real-world challenges.', 'success'); 
+    }
+    function showToast(msg, type='') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show' + (type ? ' ' + type : '');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { t.className = 'toast'; }, 3000);
+    }
 
-            <div class="actions">
-                <button class="action-btn like-btn">❤️ Like (<span class="like-count">0</span>)</button>
-                <button class="action-btn">💬 Comment</button>
-            </div>
-        `;
-
-        // Interactive Elements Event Listeners
-        // Like Button Logic
-        let likeCount = 0;
-        const likeBtn = card.querySelector('.like-btn');
-        const likeSpan = card.querySelector('.like-count');
-        likeBtn.addEventListener('click', () => {
-            likeCount++;
-            likeSpan.textContent = likeCount;
-        });
-
-        // Poll Voting Logic
-        const agreeBtn = card.querySelector('.agree-btn');
-        const agreeSpan = card.querySelector('.agree-count');
-        agreeBtn.addEventListener('click', () => {
-            agreeVotes++;
-            agreeSpan.textContent = agreeVotes;
-        });
-
-        const disagreeBtn = card.querySelector('.disagree-btn');
-        const disagreeSpan = card.querySelector('.disagree-count');
-        disagreeBtn.addEventListener('click', () => {
-            disagreeVotes++;
-            disagreeSpan.textContent = disagreeVotes;
-        });
-
-        // Add to Feed (Top par)
-        ideaFeed.insertBefore(card, ideaFeed.firstChild);
-
-        // Reset Inputs
-        document.getElementById('ideaText').value = '';
-        document.getElementById('ideaMediaUrl').value = '';
-        document.getElementById('ideaLinkUrl').value = '';
-    });
-</script>
-
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') { closeModal(null); closeJoinModal(); } });
+  </script>
 </body>
 </html>
 
